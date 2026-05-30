@@ -41,25 +41,33 @@ Same JSON shape either way.
                         └──────────────  contracts.py  ─────────────┘   (the only shared surface)
 ```
 
-### Person A — `cortex/` — *produces Verdicts*
-Headless, deterministic, unit-testable. Bake pipeline → world model → gates
-(Collision via Coal, Stability via quasi-static CoM-over-polygon in MuJoCo) →
-`suggest_transform` repair (scipy SLSQP) → FastMCP tool surface.
+### zajalist — `cortex/` — *produces Verdicts* (Person A)
+Headless, deterministic, unit-testable. Composition-aware bake (CoACD parts →
+density-weighted mass/CoM/inertia) → world model → gates (Stability = quasi-static
+CoM-over-polygon margin, Collision = convex-part clearance, Reach = 2D floor projection,
+Constraints = hardcoded cost functions) → `suggest_transform` repair (SLSQP translate+yaw
++ greedy fallback) → bake profiles (door/tree/shelf) → FastMCP tool surface.
 **Done when:** `validate_operation(topple_diff)` returns a stability-fail Verdict and
 `suggest_transform` flips it green.
 
-### Person B — `conscience/` — *renders Verdicts + drives the agent*
-Rerun viz (ghost-topple, CoM marker, support polygon, fix arrow), the Gate Stack UI
-(renders from verdict JSON), the agent/MCP loop, the demo script.
-**Done when:** feeding `VERDICT_TOPPLE` then `VERDICT_REPAIRED` shows red→green on screen.
+### FaraDuMatin — `conscience/` — *drives the agent + renders + language + engine* (Person B)
+Agent loop (scripted → real LLM, recorded fallback), the `.wdf` **full round-trip**
+serializer/parser, the **UE5 Remote Control bridge** + negate-X coordinate adapter with
+golden round-trip tests, the material-confirm panel, and Rerun viz (ghost-topple, CoM
+marker, support polygon, fix arrow). Frontend (Gate Stack UI + status graph) deferred
+until the logic is done.
+**Done when:** feeding `VERDICT_TOPPLE` then `VERDICT_REPAIRED` shows red→green; `.wdf`
+round-trips; UE5 commit-once lands (or falls back to Rerun).
 
 > Person B is **never blocked**: code against `fixtures.py`, swap to real MCP calls last.
+
+Full decision record + per-file ownership: [`DECISIONS.md`](DECISIONS.md).
 
 ---
 
 ## Day plan (one weekend, two people, heavy codegen)
 
-| When | Person A (cortex) | Person B (conscience) |
+| When | zajalist — cortex (A) | FaraDuMatin — conscience (B) |
 |---|---|---|
 | **Fri night** | freeze `contracts.py` together · `world.py` + load a real mesh | freeze contracts together · Rerun draws a box + CoM from `fixtures` |
 | **Sat AM** | `bake.py`: CoACD parts + mass/CoM/inertia → real PAP | `gate_stack.py`: pill row + drawer from any Verdict |

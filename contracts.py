@@ -55,6 +55,15 @@ class FixVector(BaseModel):
     rotate_quat: Optional[list[float]] = None  # [x, y, z, w] delta, if rotation helps
 
 
+class ConstraintResult(BaseModel):
+    """One law's result, so the (later) status graph can glow the right node."""
+    name: str                          # e.g. "facing", "door_clear"
+    ok: bool
+    hard: bool                         # hard -> gates commit; soft -> repair objective
+    magnitude: float = 0.0             # continuous violation magnitude (0 = satisfied)
+    detail: Optional[str] = None       # e.g. "Δ23°"
+
+
 class GateResult(BaseModel):
     gate: GateName
     ok: Optional[bool] = None          # None when skipped
@@ -67,6 +76,8 @@ class GateResult(BaseModel):
     fix: Optional[FixVector] = None
     viz: Optional[str] = None          # viz hint, e.g. "com_outside_polygon"
     detail: Optional[str] = None       # human string, e.g. "62cm < 90cm"
+    # Constraints gate only: per-law breakdown (decided Q11).
+    constraints: list[ConstraintResult] = []
 
 
 class Verdict(BaseModel):
@@ -136,6 +147,24 @@ class PAP(BaseModel):
     rest_states: list[str] = ["upright"]
     regions: list[dict] = []
     provenance: Provenance = Provenance()
+
+
+# --------------------------------------------------------------------------- #
+# Material confirm loop (decided Q6/Q7) — AI guesses, human confirms, it locks.
+# Cortex (A) emits MaterialGuess[]; Conscience (B) renders the confirm panel;
+# on approve they fold into PAP.semantics.materials + provenance.locked.
+# --------------------------------------------------------------------------- #
+class MaterialGuess(BaseModel):
+    part: str                                        # CoACD part id
+    mat: str                                         # guessed material, e.g. "bronze"
+    conf: float                                      # 0..1
+    source: Literal["vlm", "texture", "default"]
+    confirmed: bool = False                          # human approval -> goes to locked
+
+
+# Settings toggle (decided Q7): "prebaked" = confirm offline before the demo;
+# "live" = confirm on stage inside the 4-minute run. Same component either way.
+CONFIRM_MODES = ("prebaked", "live")
 
 
 # --------------------------------------------------------------------------- #

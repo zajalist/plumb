@@ -1,5 +1,5 @@
 """
-PLUMB Cortex — PERSON A's territory. Headless. Produces Verdicts.
+PLUMB Cortex — zajalist's territory (Person A). Headless. Produces Verdicts.
 
 Owns: bake pipeline, world model, gates, repair solver, MCP tool surface.
 NEVER imports a UI library. Everything here is deterministic and unit-testable.
