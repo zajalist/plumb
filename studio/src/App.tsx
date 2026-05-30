@@ -94,7 +94,8 @@ export default function App() {
 
       <div className="row">
         <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
-        <Viewport file={selected?.file ?? null} name={selected?.name ?? ''} />
+        <Viewport file={selected?.file ?? null} name={selected?.name ?? ''}
+          pap={selected?.pap ?? null} pos={pos} verdict={verdict} />
         <Properties pap={selected?.pap ?? null} footer={inspector} />
       </div>
 
