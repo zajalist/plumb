@@ -2,22 +2,23 @@
 name = "plumb"
 version = "0.1.0"
 description = "A spatial cortex and a language for physically-grounded, intent-aware 3D worlds."
-requires-python = ">=3.12,<3.13"   # NOTE: 3.12, not 3.14 — CoACD/MuJoCo/coal wheels.
+requires-python = ">=3.12"   # 3.14 confirmed working (no 3.12 on build box).
 dependencies = [
     "pydantic>=2.7",
     "numpy>=1.26",
-    "trimesh>=4.4",
-    "scipy>=1.13",
-    "rerun-sdk>=0.18",
-    # cortex-only physics deps (Person A) — add when wiring real backends:
-    # "coacd",          # convex decomposition (replaces deprecated V-HACD)
-    # "coal" / "hpp-fcl",  # collision / clearance (GJK+EPA)
-    # "mujoco",         # stability drop-sim / quasi-static margin
-    # "fastmcp",        # MCP server
+    "rerun-sdk>=0.18",    # the 3D conscience (viewport, timeline, ViewCoordinates)
+    "httpx>=0.27",        # UE5 Remote Control HTTP client
+    "lark>=1.1",          # .wdf grammar / parser (full round-trip)
+    # cortex-only physics deps live on the `cortex` branch; B never imports them.
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.5"]
+dev = ["pytest>=8", "ruff>=0.5", "pytest-httpserver>=1.0"]  # mock UE5 Remote Control server
+
+[tool.pytest.ini_options]
+pythonpath = ["."]          # repo root on sys.path -> `import contracts`, `import conscience...`
+testpaths = ["tests"]
+addopts = "-q"
 
 [tool.ruff]
 line-length = 100
