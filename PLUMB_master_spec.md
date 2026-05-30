@@ -59,6 +59,7 @@ Today's correction loop is also expensive: without local validation, an agent ro
 
 ---
 
+
 ## 3. The Mental Model
 
 **Three nouns, one loop.**
@@ -74,6 +75,48 @@ The loop: **Bake → Author → Propose → Gate → Repair → Commit.**
 ---
 
 ## 4. System Architecture
+
+
+```mermaid
+flowchart TB
+    Agent["AGENT (LLM)<br/>propose → validate → diagnose → repair → commit"]
+
+    subgraph Cortex["PLUMB CORTEX (Python)"]
+        direction TB
+
+        subgraph TOP[" "]
+            direction LR
+            Bake["BAKE PIPELINE<br/>(offline)"]
+            World["CANONICAL WORLD MODEL<br/>(shadow state)"]
+            Compiler["CONSTRAINT COMPILER<br/>(from node graph)"]
+            Bake ~~~ World ~~~ Compiler
+            Bake -->|writes| World
+            Compiler -->|writes| World
+        end
+
+        subgraph BOT[" "]
+            direction LR
+            AssetDB["ASSET PROFILE DB<br/>(+ user overrides)"]
+            Validation["VALIDATION ENGINE<br/>fcl · recast · mujoco · constr."]
+            AssetDB ~~~ Validation
+        end
+
+        Bake -->|writes Physical Asset| AssetDB
+        World --> Validation
+    end
+
+    Agent ---|"MCP (FastMCP)"| Cortex
+    Cortex -->|logs everything| Obs["OBSERVABILITY (Rerun + Node UI)"]
+    Adapter["UE5 ADAPTER (C++ bridge / Hayba)"] --> Obs
+    UE5["UNREAL ENGINE 5 (renderer + Chaos)"] --> Adapter
+    Obs ~~~ Adapter ~~~ UE5
+
+    classDef box fill:#1C1C1C,stroke:#D2BB85,color:#D2BB85
+    class Agent,Bake,World,Compiler,AssetDB,Validation,Obs,Adapter,UE5 box
+    style Cortex fill:#1C1C1C,stroke:#D2BB85,color:#D2BB85
+    style TOP fill:#1C1C1C,stroke:#1C1C1C,color:#D2BB85
+    style BOT fill:#1C1C1C,stroke:#1C1C1C,color:#D2BB85
+```
 
 Six subsystems connected by one canonical world model:
 
