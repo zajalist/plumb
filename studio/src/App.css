@@ -12,7 +12,7 @@
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-rows: 44px 1fr 48px minmax(220px, 38%);
+  grid-template-rows: 44px 1fr 360px;
   background: var(--paper);
   color: var(--ink);
   font-family: Inter, system-ui, sans-serif;
@@ -48,6 +48,22 @@
   height: 9px;
   border-radius: 50%;
 }
+.verdict-num {
+  color: var(--ink-dim);
+  font-weight: 400;
+  margin-left: 4px;
+}
+.scrubber-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+}
+.scrubber-hint {
+  font-size: 11px;
+  color: var(--ink-dim);
+  font-style: italic;
+}
 
 /* the dark 3D device viewport */
 .viewer-pane {
@@ -56,14 +72,49 @@
   overflow: hidden;
 }
 
+/* the resizable bottom block: handle + scrubber + node editor */
+.bottom {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.resize-handle {
+  flex: 0 0 7px;
+  height: 7px;
+  cursor: row-resize;
+  background: var(--chrome);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--ink-dim);
+  opacity: 0.5;
+}
+.resize-handle:hover {
+  background: #232a32;
+}
+.resize-handle:hover::after {
+  background: var(--blueprint);
+  opacity: 1;
+}
+
 /* attempt scrubber (replaces the timeline) */
 .scrubber {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 16px;
+  padding: 8px 16px;
   background: var(--chrome);
-  border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
 .scrubber button {
@@ -102,13 +153,190 @@
   vertical-align: middle;
 }
 
-/* node graph pane */
+/* node graph pane = canvas + palette row */
 .graph-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
   background: var(--paper);
-  border-top: 1px solid var(--line);
+}
+.canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
 }
 .react-flow {
   background: var(--paper);
+}
+
+/* palette / asset library sidebar */
+.palette {
+  width: 234px;
+  flex: 0 0 234px;
+  background: var(--chrome);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 10px 10px 24px;
+}
+
+/* canvas + inspector fill the space to the right of the palette */
+.graph-main {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  min-width: 0;
+}
+
+/* right-hand inspector */
+.inspector {
+  width: 250px;
+  flex: 0 0 250px;
+  background: var(--chrome);
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 12px 12px 24px;
+  font-size: 12px;
+}
+.inspector-empty {
+  color: var(--ink-dim);
+  font-style: italic;
+  margin-top: 8px;
+}
+.inspector-kind {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+}
+.inspector-title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-top: 2px;
+}
+.inspector-sub {
+  color: var(--ink-dim);
+  font-size: 11px;
+  margin-top: 1px;
+}
+.inspector-section {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.inspector-h {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+  margin-bottom: 6px;
+}
+.inspector-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 3px 0;
+}
+.inspector-key {
+  color: var(--ink-dim);
+}
+.inspector-detail {
+  color: var(--ink-dim);
+  font-size: 11px;
+  margin-top: 4px;
+}
+.inspector-foot {
+  margin-top: 16px;
+  color: var(--ink-dim);
+  font-size: 10px;
+}
+.port-chip {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  margin-left: 4px;
+}
+
+/* zoom controls — match the dark theme (default is dark-on-white) */
+.react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: #232a32;
+  border-bottom: 1px solid var(--line);
+  width: 26px;
+  height: 26px;
+}
+.react-flow__controls-button:hover {
+  background: #2c343d;
+}
+.react-flow__controls-button svg {
+  fill: var(--ink);
+}
+.palette-head {
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.palette-hint {
+  color: var(--ink-dim);
+  font-size: 11px;
+  margin-bottom: 10px;
+}
+.palette-cat-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+  margin: 12px 0 6px;
+}
+.palette-cat-hint {
+  text-transform: none;
+  font-weight: 400;
+  opacity: 0.7;
+}
+.palette-item {
+  background: #232a32;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 6px;
+  padding: 6px 9px;
+  margin-bottom: 6px;
+  cursor: grab;
+}
+.palette-item:active {
+  cursor: grabbing;
+}
+.palette-item-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+}
+.palette-item-sub {
+  display: block;
+  font-size: 10px;
+  color: var(--ink-dim);
+}
+/* category accents (left bar) */
+.kind-asset {
+  border-left-color: #c9a227;
+}
+.kind-measure {
+  border-left-color: #4a9eff;
+}
+.kind-law {
+  border-left-color: #28c850;
+}
+.kind-field {
+  border-left-color: #8a929c;
 }
 
 /* nodes */
@@ -129,11 +357,45 @@
   font-size: 11px;
   margin-top: 2px;
 }
-.node-op {
-  opacity: 0.92;
+/* node category accents (left border keyed to the palette) */
+.node-asset {
+  border-left: 3px solid #c9a227;
 }
-.node-gate {
+.node-measure {
+  border-left: 3px solid #4a9eff;
+}
+.node-law,
+.node-verdict {
   border-width: 1.5px;
+}
+.node-field {
+  border-left: 3px solid #8a929c;
+  opacity: 0.9;
+}
+.node-measure-val {
+  font-weight: 600;
+  font-size: 13px;
+  color: #8fc2ff;
+  margin-top: 3px;
+}
+.soft-tag {
+  font-weight: 400;
+  font-size: 10px;
+  color: #ebaa00;
+}
+/* the live knob on the bronze asset node */
+.knob {
+  margin-top: 6px;
+}
+.knob input {
+  width: 100%;
+  accent-color: #c9a227;
+}
+.knob-val {
+  display: block;
+  font-size: 10px;
+  color: var(--ink-dim);
+  margin-top: 1px;
 }
 .node-gate-head {
   display: flex;
@@ -156,9 +418,18 @@
 }
 .react-flow__handle {
   background: var(--ink-dim);
-  border: none;
-  width: 6px;
-  height: 6px;
+  border: 1px solid #0c0f12;
+  width: 11px;
+  height: 11px;
+}
+.react-flow__handle:hover {
+  background: var(--blueprint);
+}
+/* enlarge the invisible hit-area so the port is easy to grab */
+.react-flow__handle::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
 }
 .react-flow__edge-path {
   stroke: #3a424d;
