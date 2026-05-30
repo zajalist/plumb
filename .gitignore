@@ -22,3 +22,8 @@ Thumbs.db
 .superpowers/
 .playwright-mcp/
 plumb-refined.png
+
+# studio test artifacts / screenshots
+studio/test_figure.obj
+studio-*.png
+reductive-preview.png
