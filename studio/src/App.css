@@ -1,0 +1,165 @@
+/* PLUMB studio — warm-paper chrome framing a dark "device" viewport. */
+:root {
+  --paper: #14181d;
+  --chrome: #1b2026;
+  --line: #2a313a;
+  --ink: #e6e9ed;
+  --ink-dim: #8a929c;
+  --blueprint: #4a9eff;
+}
+
+.app {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: 44px 1fr 48px minmax(220px, 38%);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+/* top bar */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
+}
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.brand-dim {
+  color: var(--ink-dim);
+  font-weight: 400;
+}
+.verdict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+}
+.verdict .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+/* the dark 3D device viewport */
+.viewer-pane {
+  position: relative;
+  background: #000;
+  overflow: hidden;
+}
+
+/* attempt scrubber (replaces the timeline) */
+.scrubber {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  background: var(--chrome);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.scrubber button {
+  background: #232a32;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.scrubber button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.steps {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+.step {
+  position: relative;
+}
+.step.active {
+  border-color: var(--c) !important;
+  box-shadow: 0 0 0 1px var(--c);
+}
+.step::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c);
+  margin-right: 7px;
+  vertical-align: middle;
+}
+
+/* node graph pane */
+.graph-pane {
+  background: var(--paper);
+  border-top: 1px solid var(--line);
+}
+.react-flow {
+  background: var(--paper);
+}
+
+/* nodes */
+.node {
+  background: var(--chrome);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 11px;
+  min-width: 130px;
+  color: var(--ink);
+  font-size: 12px;
+}
+.node-title {
+  font-weight: 600;
+}
+.node-sub {
+  color: var(--ink-dim);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.node-op {
+  opacity: 0.92;
+}
+.node-gate {
+  border-width: 1.5px;
+}
+.node-gate-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.node-headline {
+  font-weight: 700;
+  font-size: 15px;
+  margin-top: 3px;
+}
+.pill {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #0c0f12;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.react-flow__handle {
+  background: var(--ink-dim);
+  border: none;
+  width: 6px;
+  height: 6px;
+}
+.react-flow__edge-path {
+  stroke: #3a424d;
+}
