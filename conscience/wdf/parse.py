@@ -12,6 +12,7 @@ the bundled grammar file.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from lark import Lark, Transformer, v_args
@@ -51,10 +52,25 @@ class _Builder(Transformer):
         return str(tok)
 
     def STRING(self, tok):
-        return str(tok)[1:-1]  # strip surrounding quotes
+        # ESCAPED_STRING is a JSON-compatible double-quoted literal; decode it
+        # symmetrically with the `json.dumps` the serializer uses so a name holding
+        # a quote / backslash / control char round-trips (MUST-FIX 4). A bare
+        # `[1:-1]` would only drop the outer quotes and leave the escapes literal.
+        return json.loads(str(tok))
 
     def QUANTITY(self, tok):
         return str(tok)
+
+    def SIGNED_NUMBER(self, tok):
+        # A field/load_cap value is stored as the verbatim source text (the model
+        # holds strings like "20" / "5" / "-3.5"), so reproduce the token text
+        # unchanged rather than round-tripping through float().
+        return str(tok)
+
+    def value(self, child):
+        # `value` wraps QUANTITY | NUMBER | STRING | NAME; each leaf callback has
+        # already produced a plain string, so the field/load_cap value is that str.
+        return child
 
     def LAW_EXPR(self, tok):
         return str(tok).strip()

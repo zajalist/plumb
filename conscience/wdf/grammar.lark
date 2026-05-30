@@ -29,10 +29,15 @@ states_prop:      "states" ":" name_list
 affordances_prop: "affordances" ":" name_list
 tags_prop:        "tags" ":" name_list
 swept_prop:       "swept_volume" ":" NAME
-loadcap_prop:     "load_cap" ":" QUANTITY
+loadcap_prop:     "load_cap" ":" value
 
 pair: NAME ":" NAME
 name_list: "[" [NAME ("," NAME)*] "]"
+
+// A field/load_cap value may be a bare name, a (optionally signed) number, a unit
+// quantity or a quoted string — anything a valid in-memory model can hold
+// (round-trip invariant), including negative/decimal/integer numerics.
+value: QUANTITY | SIGNED_NUMBER | STRING | NAME
 
 // --------------------------------------------------------------------------- //
 // Scene
@@ -44,7 +49,7 @@ scene_stmt: field_stmt
           | law_stmt
 
 field_stmt: "field" field_pair ("·" field_pair)*
-field_pair: NAME ":" NAME
+field_pair: NAME ":" value
 
 place_stmt: "place" NAME PREPOSITION NAME ["state" NAME]
 
@@ -57,12 +62,16 @@ PREPOSITION: "on" | "at" | "in" | "against" | "near"
 HARDNESS: "hard" | "soft"
 RANGE: /-?[0-9]+(\.[0-9]+)?\.\.-?[0-9]+(\.[0-9]+)?deg/
 QUANTITY: /[0-9]+(\.[0-9]+)?[a-zA-Z%]+/
-// the law expression: everything up to the trailing hard|soft on the same line
-LAW_EXPR: /[^\n]+?(?=[ \t]+(?:hard|soft)\b)/
+// the law expression: everything up to the TRAILING hard|soft on the same line.
+// The lookahead is anchored to end-of-line ([ \t]*$) so a hard|soft that appears
+// mid-expression (e.g. `limit hard cap`) does not terminate it — only a hardness
+// keyword sitting at the very end of the line does.
+LAW_EXPR: /[^\n]+?(?=[ \t]+(?:hard|soft)[ \t]*(?:\n|$))/
 
 NAME: /[A-Za-z_][A-Za-z0-9_]*/
 
 %import common.ESCAPED_STRING -> STRING
+%import common.SIGNED_NUMBER
 %import common.WS
 %ignore WS
 %ignore /#[^\n]*/
