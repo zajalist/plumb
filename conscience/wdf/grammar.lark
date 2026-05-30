@@ -1,0 +1,68 @@
+// Grammar for the `.wdf` language (Task B3, spec §12.2).
+// A document is a vocabulary (typed assets) followed by an optional scene
+// (placements, laws, fields). The free-form law expression is captured as a
+// single token up to the trailing `hard`/`soft` keyword; everything else is
+// structured. Parsed with Lark's Earley engine.
+
+start: vocabulary scene?
+
+// --------------------------------------------------------------------------- //
+// Vocabulary
+// --------------------------------------------------------------------------- //
+vocabulary: "vocabulary" "{" asset* "}"
+
+asset: "asset" NAME "{" asset_prop* "}"
+
+asset_prop: profile_prop
+          | material_prop
+          | joint_prop
+          | states_prop
+          | affordances_prop
+          | tags_prop
+          | swept_prop
+          | loadcap_prop
+
+profile_prop:     "profile" ":" NAME
+material_prop:    "material" ":" "{" pair ("," pair)* "}"
+joint_prop:       "joint" ":" "{" "axis" ":" NAME "," "range" ":" RANGE "}"
+states_prop:      "states" ":" name_list
+affordances_prop: "affordances" ":" name_list
+tags_prop:        "tags" ":" name_list
+swept_prop:       "swept_volume" ":" NAME
+loadcap_prop:     "load_cap" ":" QUANTITY
+
+pair: NAME ":" NAME
+name_list: "[" [NAME ("," NAME)*] "]"
+
+// --------------------------------------------------------------------------- //
+// Scene
+// --------------------------------------------------------------------------- //
+scene: "scene" STRING "{" scene_stmt* "}"
+
+scene_stmt: field_stmt
+          | place_stmt
+          | law_stmt
+
+field_stmt: "field" field_pair ("·" field_pair)*
+field_pair: NAME ":" NAME
+
+place_stmt: "place" NAME PREPOSITION NAME ["state" NAME]
+
+law_stmt: "law" NAME ":" LAW_EXPR HARDNESS
+
+// --------------------------------------------------------------------------- //
+// Terminals
+// --------------------------------------------------------------------------- //
+PREPOSITION: "on" | "at" | "in" | "against" | "near"
+HARDNESS: "hard" | "soft"
+RANGE: /-?[0-9]+(\.[0-9]+)?\.\.-?[0-9]+(\.[0-9]+)?deg/
+QUANTITY: /[0-9]+(\.[0-9]+)?[a-zA-Z%]+/
+// the law expression: everything up to the trailing hard|soft on the same line
+LAW_EXPR: /[^\n]+?(?=[ \t]+(?:hard|soft)\b)/
+
+NAME: /[A-Za-z_][A-Za-z0-9_]*/
+
+%import common.ESCAPED_STRING -> STRING
+%import common.WS
+%ignore WS
+%ignore /#[^\n]*/
