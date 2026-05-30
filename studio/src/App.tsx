@@ -1,12 +1,13 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { IconDefs, Icon } from './Icons'
 import { Brand } from './Brand'
 import { AssetsPanel, type Asset } from './AssetsPanel'
 import { Viewport } from './Viewport'
 import { Properties } from './Properties'
+import { Inspector } from './Inspector'
 import { GateStack } from './GateStack'
 import ConstraintGraph from './ConstraintGraph' // Fara's — unchanged
-import { bake } from './api'
+import { bake, validate, repair, commit, type Verdict } from './api'
 import { attempts } from './verdicts'
 import './App.css'
 
@@ -14,6 +15,14 @@ export default function App() {
   const [assets, setAssets] = useState<Asset[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const selected = assets.find((a) => a.id === sel) ?? null
+
+  // placement + live verdict (M2)
+  const [pos, setPos] = useState<number[]>([0, 0, 0.4])
+  const [verdict, setVerdict] = useState<Verdict | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  // reset the loop when the selected asset changes
+  useEffect(() => { setPos([0, 0, 0.4]); setVerdict(null) }, [sel])
 
   const onImport = useCallback(async (file: File) => {
     const base = file.name.replace(/\.[^.]+$/, '')
@@ -29,8 +38,35 @@ export default function App() {
     }
   }, [])
 
-  // Fixture verdict drives the gate stack + Fara's graph until M2 wires live /validate.
-  const attempt = attempts[0]
+  const objId = selected?.pap?.asset_id ?? null
+
+  const onValidate = useCallback(async () => {
+    if (!objId) return
+    setBusy(true)
+    try { setVerdict(await validate(objId, pos)) } finally { setBusy(false) }
+  }, [objId, pos])
+
+  const onRepair = useCallback(async () => {
+    if (!objId) return
+    setBusy(true)
+    try {
+      const tf = await repair(objId, pos)
+      const rounded = tf.pos.map((v) => Math.round(v * 1000) / 1000) // mm precision, no e-notation
+      setPos(rounded)
+      setVerdict(await validate(objId, rounded, tf.quat))
+    } finally { setBusy(false) }
+  }, [objId, pos])
+
+  const onCommit = useCallback(async () => {
+    if (!objId) return
+    setBusy(true)
+    try { await commit(objId, pos) } finally { setBusy(false) }
+  }, [objId, pos])
+
+  const inspector = selected?.status === 'ok' && objId
+    ? <Inspector pos={pos} setPos={setPos} verdict={verdict} busy={busy}
+        onValidate={onValidate} onRepair={onRepair} onCommit={onCommit} />
+    : undefined
 
   return (
     <div className="app">
@@ -54,12 +90,12 @@ export default function App() {
         </div>
       </div>
 
-      <GateStack attempt={attempt} />
+      <GateStack verdict={verdict} />
 
       <div className="row">
         <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
         <Viewport file={selected?.file ?? null} name={selected?.name ?? ''} />
-        <Properties pap={selected?.pap ?? null} />
+        <Properties pap={selected?.pap ?? null} footer={inspector} />
       </div>
 
       <div className="nodeeditor">
@@ -67,7 +103,7 @@ export default function App() {
           <Icon name="reach" /><span className="t">Node editor</span><span className="who">Fara</span>
         </header>
         <div className="ne">
-          <ConstraintGraph attempt={attempt} />
+          <ConstraintGraph attempt={attempts[0]} />
         </div>
       </div>
     </div>

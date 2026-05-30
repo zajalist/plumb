@@ -13,15 +13,53 @@ import tempfile
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 app = FastAPI(title="PLUMB Studio backend")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 
-# In-memory asset registry (asset_id -> PAP). Reset on restart; the studio is the
-# source of truth for the session, the backend just bakes + remembers.
+# In-memory asset registry (asset_id -> PAP) + the session world that holds placed
+# assets. Reset on restart; the studio is the source of truth for the session, the
+# backend bakes + remembers + validates.
 _ASSETS: dict = {}
+
+
+def _world():
+    """Lazily create the session WorldModel (import cortex on demand)."""
+    global _WORLD
+    if _WORLD is None:
+        from cortex.world import WorldModel
+
+        _WORLD = WorldModel()
+    return _WORLD
+
+
+_WORLD = None
+
+
+class Placement(BaseModel):
+    """A proposed placement of a baked asset at a transform (canonical space)."""
+
+    object: str
+    pos: list[float]
+    quat: list[float] = [0.0, 0.0, 0.0, 1.0]
+
+
+def _place(p: Placement):
+    """Ensure ``p.object`` sits in the session world at ``p`` and return its Transform."""
+    from contracts import Transform
+
+    if p.object not in _ASSETS:
+        raise HTTPException(status_code=404, detail=f"unknown asset {p.object!r}; bake it first")
+    tf = Transform(pos=p.pos, quat=p.quat)
+    world = _world()
+    if p.object in world.nodes():
+        world.update_transform(p.object, tf)
+    else:
+        world.add(p.object, _ASSETS[p.object], tf)
+    return tf
 
 
 def _cortex_available() -> bool:
@@ -63,3 +101,31 @@ async def bake(mesh: UploadFile = File(...), materials: str | None = Form(None))
 
     _ASSETS[asset_id] = pap
     return pap.model_dump()
+
+
+@app.post("/validate")
+def validate(p: Placement) -> dict:
+    """Place the asset at ``p`` and run the real gate stack. Returns the Verdict."""
+    from contracts import Diff
+    from cortex.orchestrator import validate_operation
+
+    tf = _place(p)
+    verdict = validate_operation(_world(), Diff(object=p.object, transform=tf))
+    return verdict.model_dump()
+
+
+@app.post("/repair")
+def repair(p: Placement) -> dict:
+    """Run the SLSQP repair for the placed asset. Returns the suggested Transform."""
+    from cortex.repair import suggest_transform
+
+    _place(p)
+    new_tf = suggest_transform(_world(), p.object, intent={})
+    return new_tf.model_dump()
+
+
+@app.post("/commit")
+def commit(p: Placement) -> dict:
+    """Commit the placement into the session world (UE5 dispatch is a later WP)."""
+    _place(p)
+    return {"ok": True, "object": p.object}

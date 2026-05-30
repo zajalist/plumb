@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Icon } from './Icons'
 import type { PAP } from './api'
 
@@ -5,7 +6,7 @@ const SWATCH: Record<string, string> = {
   bronze: '#7b5a2a', stone: '#6b6a63', glass: '#5b6b6b', wood: '#6e5a36', default: '#5a5750',
 }
 
-export function Properties({ pap }: { pap: PAP | null }) {
+export function Properties({ pap, footer }: { pap: PAP | null; footer?: ReactNode }) {
   if (!pap) {
     return (
       <section className="pane props">
@@ -51,6 +52,7 @@ export function Properties({ pap }: { pap: PAP | null }) {
           </div>
           <div className="confirm"><Icon name="lock" />Confirm &amp; lock materials</div>
         </div>
+        {footer}
       </div>
     </section>
   )

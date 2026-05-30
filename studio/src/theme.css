@@ -112,3 +112,18 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .nodeeditor>header .t{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);font-weight:500}
 .nodeeditor>header .who{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink4);border:1px solid var(--line2);padding:2px 7px;border-radius:9px}
 .nodeeditor .ne{flex:1;min-height:0}
+
+/* inspector (placement controls) */
+.insp-grid{display:flex;gap:8px}
+.insp-field{flex:1;display:flex;flex-direction:column;gap:4px}
+.insp-field span{font-size:10px;letter-spacing:.1em;color:var(--ink4);text-transform:uppercase}
+.insp-field input{width:100%;background:var(--inset);border:1px solid var(--line);border-radius:5px;color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px 8px}
+.insp-field input:focus{outline:none;border-color:var(--sage)}
+.insp-readout{font-family:var(--mono);font-size:11.5px;margin-top:10px}
+.insp-btns{display:flex;gap:7px;margin-top:12px}
+.ibtn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:32px;border-radius:6px;border:1px solid var(--line2);background:var(--surface);color:var(--ink2);font-family:var(--sans);font-size:12px;font-weight:500;cursor:pointer}
+.ibtn svg{width:14px;height:14px;color:var(--ink3)}
+.ibtn:hover:not(:disabled){background:var(--surface2);color:var(--ink)}
+.ibtn:disabled{opacity:.45;cursor:default}
+.ibtn.primary{border-color:var(--sage-deep)} .ibtn.primary svg{color:var(--sage)}
+.ibtn.sage:not(:disabled){border-color:var(--sage);color:var(--sage)} .ibtn.sage:not(:disabled) svg{color:var(--sage)}

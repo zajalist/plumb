@@ -29,3 +29,33 @@ export async function bake(file: File, materials?: Record<string, string>): Prom
   }
   return r.json()
 }
+
+// --- validate / repair / commit (the live gate loop) ---
+export type GateName = 'collision' | 'stability' | 'constraints' | 'reach'
+export type GateResult = {
+  gate: GateName
+  ok: boolean | null
+  skipped: boolean
+  value_m: number | null
+  fix: { translate: number[]; rotate_quat: number[] | null } | null
+  viz: string | null
+  detail: string | null
+}
+export type Verdict = { ok: boolean; stopped_at: GateName | null; gates: GateResult[]; soft_cost: number }
+export type Tf = { pos: number[]; quat: number[]; scale: number[] }
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${BASE}${path}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? `${path} failed`)
+  return r.json()
+}
+
+const DEFAULT_QUAT = [0, 0, 0, 1]
+export const validate = (object: string, pos: number[], quat = DEFAULT_QUAT) =>
+  post<Verdict>('/validate', { object, pos, quat })
+export const repair = (object: string, pos: number[], quat = DEFAULT_QUAT) =>
+  post<Tf>('/repair', { object, pos, quat })
+export const commit = (object: string, pos: number[], quat = DEFAULT_QUAT) =>
+  post<{ ok: boolean }>('/commit', { object, pos, quat })

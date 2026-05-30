@@ -51,3 +51,33 @@ def test_bake_rejects_a_garbage_mesh_cleanly():
     # a bad mesh is a 4xx with a message, never a 500 crash
     assert r.status_code == 422
     assert "bake failed" in r.json()["detail"]
+
+
+def test_validate_then_repair_flips_stability_to_green():
+    # bake the asset so the backend knows its PAP
+    files = {"mesh": ("fig.obj", _combined_mesh_bytes(), "text/plain")}
+    obj = client.post("/bake", files=files).json()["asset_id"]
+
+    # place it well off-centre -> its CoM slides off the support footprint -> unstable
+    bad = {"object": obj, "pos": [0.30, 0.0, 0.40]}
+    v = client.post("/validate", json=bad)
+    assert v.status_code == 200, v.text
+    verdict = v.json()
+    stability = next(g for g in verdict["gates"] if g["gate"] == "stability")
+    assert stability["value_m"] is not None      # a real margin number, not a bare no
+    assert stability["ok"] is False              # off-centre placement fails stability
+
+    # the SLSQP repair returns a transform...
+    fix = client.post("/repair", json=bad).json()
+    assert len(fix["pos"]) == 3
+
+    # ...and validating the repaired placement passes stability
+    good = {"object": obj, "pos": fix["pos"], "quat": fix["quat"]}
+    verdict2 = client.post("/validate", json=good).json()
+    stability2 = next(g for g in verdict2["gates"] if g["gate"] == "stability")
+    assert stability2["ok"] is True
+
+
+def test_validate_unknown_asset_is_404():
+    r = client.post("/validate", json={"object": "nope", "pos": [0, 0, 0]})
+    assert r.status_code == 404
