@@ -1,78 +1,74 @@
-import { useCallback, useRef, useState } from 'react'
-import RerunViewer, { type ViewerControls } from './RerunViewer'
-import ConstraintGraph from './ConstraintGraph'
+import { useState, useCallback } from 'react'
+import { IconDefs, Icon } from './Icons'
+import { Brand } from './Brand'
+import { AssetsPanel, type Asset } from './AssetsPanel'
+import { Viewport } from './Viewport'
+import { Properties } from './Properties'
+import { GateStack } from './GateStack'
+import ConstraintGraph from './ConstraintGraph' // Fara's — unchanged
+import { bake } from './api'
 import { attempts } from './verdicts'
 import './App.css'
 
-const N = attempts.length
-
 export default function App() {
-  const [idx, setIdx] = useState(0)
-  const controls = useRef<ViewerControls | null>(null)
+  const [assets, setAssets] = useState<Asset[]>([])
+  const [sel, setSel] = useState<string | null>(null)
+  const selected = assets.find((a) => a.id === sel) ?? null
 
-  const attempt = attempts[idx]
-
-  // Scrubber → viewer: move the 3D time cursor to this attempt's keyframe.
-  const goTo = useCallback((next: number) => {
-    const clamped = Math.min(N - 1, Math.max(0, next))
-    setIdx(clamped)
-    controls.current?.seekFraction(N > 1 ? clamped / (N - 1) : 0)
+  const onImport = useCallback(async (file: File) => {
+    const base = file.name.replace(/\.[^.]+$/, '')
+    const id = `${base}-${Math.random().toString(36).slice(2, 6)}`
+    setAssets((a) => [...a, { id, name: file.name, file, status: 'baking' }])
+    setSel(id)
+    try {
+      const pap = await bake(file)
+      setAssets((a) => a.map((x) => (x.id === id ? { ...x, pap, status: 'ok' } : x)))
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setAssets((a) => a.map((x) => (x.id === id ? { ...x, status: 'error', error: msg } : x)))
+    }
   }, [])
 
-  // Viewer → scrubber: if the user plays the recording, reflect the attempt.
-  const onTimeFraction = useCallback((frac: number) => {
-    const nearest = Math.round(frac * (N - 1))
-    setIdx((cur) => (cur === nearest ? cur : nearest))
-  }, [])
-
-  const verdictBadge = attempt.ok
-    ? { text: 'ALL GREEN', color: '#28c850' }
-    : { text: `STOPPED · ${attempt.stopped_at?.toUpperCase()}`, color: '#dc3232' }
+  // Fixture verdict drives the gate stack + Fara's graph until M2 wires live /validate.
+  const attempt = attempts[0]
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          PLUMB<span className="brand-dim"> · spatial conscience</span>
-        </div>
-        <div className="verdict" style={{ color: verdictBadge.color }}>
-          <span className="dot" style={{ background: verdictBadge.color }} />
-          {verdictBadge.text}
-        </div>
-      </header>
+      <IconDefs />
 
-      <div className="viewer-pane">
-        <RerunViewer
-          rrd="/gallery.rrd"
-          onReady={(c) => (controls.current = c)}
-          onTimeFraction={onTimeFraction}
-        />
+      <div className="menubar">
+        <Brand />
+        <div className="sep" />
+        <div className="mfile">
+          <div className="mbtn"><Icon name="new" />New</div>
+          <div className="mbtn"><Icon name="open" />Open</div>
+          <label className="mbtn key">
+            <Icon name="import" />Import mesh
+            <input type="file" accept=".obj,.glb,.stl" style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f) }} />
+          </label>
+        </div>
+        <div className="proj">
+          <span className="dot" /><span className="mono">untitled.wdf</span>
+          <span style={{ color: 'var(--ink4)' }}>·</span>{assets.length} assets
+        </div>
       </div>
 
-      <div className="scrubber">
-        <button onClick={() => goTo(idx - 1)} disabled={idx === 0}>
-          ◀ prev
-        </button>
-        <div className="steps">
-          {attempts.map((a, i) => (
-            <button
-              key={a.attempt}
-              className={`step ${i === idx ? 'active' : ''}`}
-              style={{ '--c': a.ok ? '#28c850' : '#dc3232' } as React.CSSProperties}
-              onClick={() => goTo(i)}
-            >
-              attempt {i + 1}
-              {a.committed ? ' ✓' : ''}
-            </button>
-          ))}
-        </div>
-        <button onClick={() => goTo(idx + 1)} disabled={idx === N - 1}>
-          next ▶
-        </button>
+      <GateStack attempt={attempt} />
+
+      <div className="row">
+        <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
+        <Viewport file={selected?.file ?? null} name={selected?.name ?? ''} />
+        <Properties pap={selected?.pap ?? null} />
       </div>
 
-      <div className="graph-pane">
-        <ConstraintGraph attempt={attempt} />
+      <div className="nodeeditor">
+        <header>
+          <Icon name="reach" /><span className="t">Node editor</span><span className="who">Fara</span>
+        </header>
+        <div className="ne">
+          <ConstraintGraph attempt={attempt} />
+        </div>
       </div>
     </div>
   )
