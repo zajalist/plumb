@@ -96,3 +96,11 @@
   background: var(--surface); color: var(--ink3); font-family: var(--sans); font-size: 12px; cursor: pointer;
 }
 .inspector-delete:hover { border-color: var(--fail); color: var(--fail); }
+
+/* ── resize handle (node editor) ──────────────────────────────── */
+.resize-handle {
+  height: 4px; flex: none; background: transparent; border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line); cursor: row-resize; user-select: none;
+  transition: background-color 120ms cubic-bezier(0.2, 0, 0.38, 0.9);
+}
+.resize-handle:hover { background-color: rgba(52, 192, 173, 0.12); }
