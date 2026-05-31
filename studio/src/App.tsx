@@ -76,6 +76,14 @@ export default function App() {
   const [rot, setRot] = useState<number[]>([0, 0, 0])   // placement rotation (euler°), feeds the quat
   const [scale, setScale] = useState(1)                 // uniform placement scale, feeds the transform
   const [verdict, setVerdict] = useState<Verdict | null>(null)
+  // Menubar "New project": return to the launch screen (not the bake stage) and wipe the
+  // session, warning first if there's unsaved work in it.
+  const newProject = useCallback(() => {
+    if (assets.length > 0 &&
+        !window.confirm('Start a new project? Unsaved changes in the current one will be lost.')) return
+    setAssets([]); setSel(null); setWdf(null); setProjectName(null); setVerdict(null)
+    setScreen('splash')
+  }, [assets.length])
   // Stability support model. Free-standing (default) = the base co-moves with the
   // body, so lateral placement doesn't topple it; off → the anchored pedestal model.
   const [freeStanding, setFreeStanding] = useState(true)
@@ -439,7 +447,7 @@ export default function App() {
       <Menubar
         projectName={projectName ? `${projectName}` : wdf?.scene ? `${wdf.scene.name}.wdf` : 'untitled'}
         assetCount={assets.length}
-        onNew={startNew}
+        onNew={newProject}
         onOpenWdf={onOpenFile}
         onImport={onAddFiles}
         onSaveProject={onSaveProject}
