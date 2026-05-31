@@ -23,6 +23,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 /* menubar */
 .menubar{display:flex;align-items:center;gap:18px;height:52px;padding:0 18px;background:var(--surface);border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:11px}
+.brand .logomark{width:30px;height:30px;display:block;object-fit:contain}
 .brand .word{font-weight:600;font-size:16px;letter-spacing:.30em;color:var(--ink)}
 .sep{width:1px;height:22px;background:var(--line2)}
 .mfile{display:flex;gap:4px}
