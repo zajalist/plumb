@@ -17,7 +17,9 @@ const PAP_FIX: PAP = {
 
 test('renders the real baked numbers from a PAP', () => {
   render(<Properties pap={PAP_FIX} />)
-  expect(screen.getByText('48.0 kg')).toBeInTheDocument()
+  // mass renders in a recessed fill-bar field: value and unit are separate spans
+  expect(screen.getByText('48.0')).toBeInTheDocument()
+  expect(screen.getByText('kg')).toBeInTheDocument()
   expect(screen.getByText('statue')).toBeInTheDocument()
   expect(screen.getByText('yes · 9 parts')).toBeInTheDocument()
   expect(screen.getByText(/bronze/)).toBeInTheDocument()

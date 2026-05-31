@@ -112,14 +112,17 @@ async def bake(
     materials: str | None = Form(None),
     profile: str = Form("rigid_prop"),
     decimate: int | None = Form(None),
+    extras: list[UploadFile] = File(default=[]),
 ) -> dict:
     """Run the real composition bake on an uploaded mesh and return its PAP + masks.
 
     ``materials`` is an optional JSON map (part key -> material name); absent => a pure
     auto-bake (default-density physics + a low-confidence guess per part). ``profile``
     selects the bake archetype; ``decimate`` (target face count) best-effort simplifies
-    dense meshes first so CoACD stays fast. The response is the PAP plus a ``parts``
-    array: the per-part masks the studio renders and the human confirms.
+    dense meshes first so CoACD stays fast. ``extras`` are sidecar files for
+    non-self-contained formats — a ``.gltf`` references its geometry in a ``.bin`` (and
+    textures) by relative name, so we stage them alongside it. The response is the PAP
+    plus a ``parts`` array: the per-part masks the studio renders and the human confirms.
     """
     from cortex.bake import bake_asset_detailed
 
@@ -127,22 +130,32 @@ async def bake(
 
     fn = mesh.filename or "asset.obj"
     raw = await mesh.read()
-    suffix = "." + fn.rsplit(".", 1)[-1]
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
-        f.write(raw)
-        path = f.name
 
-    # Unreal .uasset → headless glTF first (then bake the glb like any other mesh).
     if is_uasset(fn):
+        # Unreal .uasset → headless glTF first (then bake the glb like any other mesh).
+        with tempfile.NamedTemporaryFile(suffix=".uasset", delete=False) as f:
+            f.write(raw)
+            upath = f.name
         if not ue_status()["available"]:
             raise HTTPException(
                 status_code=503,
                 detail="Unreal not configured (set PLUMB_UE_CMD + PLUMB_UE_PROJECT) — import .obj/.glb/.stl instead",
             )
-        glb = convert_uasset(fn, path)
+        glb = convert_uasset(fn, upath)
         if not glb:
             raise HTTPException(status_code=422, detail=f"Unreal produced no mesh for {fn}")
         path = glb
+    else:
+        # Save into a temp DIR (not a lone temp file) so a .gltf can resolve its
+        # sibling .bin / textures by the relative names baked into the file.
+        work = tempfile.mkdtemp(prefix="plumb_mesh_")
+        path = os.path.join(work, os.path.basename(fn))
+        with open(path, "wb") as f:
+            f.write(raw)
+        for ex in extras:
+            if ex.filename:
+                with open(os.path.join(work, os.path.basename(ex.filename)), "wb") as f:
+                    f.write(await ex.read())
 
     if decimate:
         path = _maybe_decimate(path, int(decimate))
@@ -152,7 +165,11 @@ async def bake(
     try:
         pap, parts = bake_asset_detailed(asset_id, path, part_materials=part_materials, profile=profile)
     except Exception as e:  # bad mesh / decomposition failure — surface, don't crash
-        raise HTTPException(status_code=422, detail=f"bake failed: {e}") from e
+        msg = str(e)
+        if fn.lower().endswith(".gltf") and ("No such file" in msg or ".bin" in msg):
+            msg = (".gltf needs its external files — drop the .gltf together with its "
+                   ".bin and textures, or import the self-contained .glb instead.")
+        raise HTTPException(status_code=422, detail=f"bake failed: {msg}") from e
 
     _ASSETS[asset_id] = pap
     return {**pap.model_dump(), "parts": parts}

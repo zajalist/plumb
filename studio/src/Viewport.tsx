@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { Icon } from './Icons'
 import type { PAP, Part, Verdict } from './api'
 
-const SAGE = 0x8e9a60, FAIL = 0xc16a4a, IDLE = 0x7c7868, AMBER = 0xc2a24e
-const SOLID = '#586040'
+const SAGE = 0x34c0ad, FAIL = 0xe0694f, IDLE = 0x5e676e, AMBER = 0xd9a84c
+const SOLID = '#3a4348'
 
 type Refs = {
   host: HTMLDivElement
   renderer: THREE.WebGLRenderer
   scene: THREE.Scene
   cam: THREE.PerspectiveCamera
+  controls: OrbitControls     // user orbit / pan / zoom
+  grid: THREE.GridHelper      // floor, scaled to the mesh
   meshHolder: THREE.Group       // placed assembly (moves with pos)
   parts: THREE.Group            // the per-part mask meshes
   partMats: THREE.MeshStandardMaterial[]
@@ -19,6 +22,29 @@ type Refs = {
   plumb: THREE.Line
   landing: THREE.Mesh
   raf: number
+}
+
+// Frame the camera + floor grid to the baked geometry so any mesh scale reads
+// right (a 5 m statue and a 5 cm trinket both fill the view sensibly).
+function frameToParts(r: Refs) {
+  r.scene.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(r.parts)
+  if (box.isEmpty()) return
+  const center = box.getCenter(new THREE.Vector3())
+  const radius = Math.max(box.getBoundingSphere(new THREE.Sphere()).radius, 1e-3)
+
+  r.grid.scale.setScalar(Math.min(80, Math.max(0.4, radius * 2.4)) / 1.6)
+
+  const fov = (r.cam.fov * Math.PI) / 180
+  const dist = (radius / Math.sin(fov / 2)) * 1.35
+  r.controls.target.copy(center)
+  r.cam.position.copy(center).addScaledVector(new THREE.Vector3(1, 0.7, 1).normalize(), dist)
+  r.cam.near = Math.max(1e-3, radius / 100)
+  r.cam.far = radius * 200 + 10
+  r.cam.updateProjectionMatrix()
+  r.controls.minDistance = radius * 0.4
+  r.controls.maxDistance = radius * 30
+  r.controls.update()
 }
 
 function buildParts(group: THREE.Group, partList: Part[]): THREE.MeshStandardMaterial[] {
@@ -50,6 +76,7 @@ export function Viewport({ name, pap, pos, verdict, status }: {
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const refs = useRef<Refs | null>(null)
+  const posRef = useRef(pos); posRef.current = pos   // latest pos, without re-framing
   const [view, setView] = useState<'masks' | 'solid'>('masks')
   const hasParts = !!pap?.parts?.some((p) => p.verts?.length)
 
@@ -69,18 +96,18 @@ export function Viewport({ name, pap, pos, verdict, status }: {
     const w = host.clientWidth || 600, h = host.clientHeight || 360
 
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color('#100F0A')
+    scene.background = new THREE.Color('#0A0C0E')
     const cam = new THREE.PerspectiveCamera(38, w / h, 0.01, 100)
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
     renderer.setSize(w, h)
     host.appendChild(renderer.domElement)
 
-    scene.add(new THREE.HemisphereLight(0xcfcab8, 0x141310, 1.0))
+    scene.add(new THREE.HemisphereLight(0xc8d0d4, 0x0e1113, 1.0))
     const key = new THREE.DirectionalLight(0xffffff, 0.55); key.position.set(2, 5, 3); scene.add(key)
 
     const world = new THREE.Group(); world.rotation.x = -Math.PI / 2; scene.add(world)
-    const grid = new THREE.GridHelper(1.6, 16, 0x23231b, 0x1c1c15)
+    const grid = new THREE.GridHelper(1.6, 16, 0x223035, 0x161b1e)
     grid.rotation.x = Math.PI / 2; world.add(grid)
 
     const meshHolder = new THREE.Group(); world.add(meshHolder)
@@ -95,11 +122,19 @@ export function Viewport({ name, pap, pos, verdict, status }: {
     const landing = new THREE.Mesh(new THREE.RingGeometry(0.012, 0.022, 20), new THREE.MeshBasicMaterial({ color: IDLE, side: THREE.DoubleSide }))
     landing.rotation.x = -Math.PI / 2; landing.visible = false; world.add(landing)
 
-    let angle = 0.6
+    // user camera: drag to orbit, scroll to zoom, right-drag to pan. Idle auto-spin
+    // until the user grabs it.
+    cam.position.set(1.1, 0.85, 1.1)
+    const controls = new OrbitControls(cam, renderer.domElement)
+    controls.enableDamping = true
+    controls.dampingFactor = 0.08
+    controls.autoRotate = true
+    controls.autoRotateSpeed = 0.9
+    controls.target.set(0, 0.3, 0)
+    controls.addEventListener('start', () => { controls.autoRotate = false })
+
     const tick = () => {
-      angle += 0.0025
-      cam.position.set(Math.sin(angle) * 1.7, 0.95, Math.cos(angle) * 1.7)
-      cam.lookAt(0, 0.32, 0)
+      controls.update()
       renderer.render(scene, cam)
       r.raf = requestAnimationFrame(tick)
     }
@@ -109,22 +144,25 @@ export function Viewport({ name, pap, pos, verdict, status }: {
     })
     ro.observe(host)
 
-    const r: Refs = { host, renderer, scene, cam, meshHolder, parts, partMats: [], footprint, comDot, plumb, landing, raf: 0 }
+    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, parts, partMats: [], footprint, comDot, plumb, landing, raf: 0 }
     refs.current = r
     tick()
 
     return () => {
-      cancelAnimationFrame(r.raf); ro.disconnect(); renderer.dispose()
+      cancelAnimationFrame(r.raf); ro.disconnect(); controls.dispose(); renderer.dispose()
       if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement)
       refs.current = null
     }
   }, [])
 
-  // ---- (re)build mask meshes when the baked parts change ----
+  // ---- (re)build mask meshes + frame the camera when the baked parts change ----
   useEffect(() => {
     const r = refs.current
     if (!r) return
+    const p = posRef.current
+    r.meshHolder.position.set(p[0] ?? 0, p[1] ?? 0, p[2] ?? 0)
     r.partMats = buildParts(r.parts, pap?.parts ?? [])
+    frameToParts(r)
   }, [pap?.asset_id, pap?.parts])
 
   // ---- recolour on masks/solid toggle ----

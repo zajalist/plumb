@@ -7,7 +7,7 @@ import type { Asset } from './AssetsPanel'
 export type BakeSettings = { profile: string; simplify: boolean }
 
 const PROFILES = ['rigid_prop', 'door', 'tree', 'shelf']
-const ACCEPT = '.obj,.glb,.gltf,.stl,.uasset'
+const ACCEPT = '.obj,.glb,.gltf,.stl,.uasset,.bin,.png,.jpg,.jpeg,.webp,.ktx2'
 
 function statusLabel(s: Asset['status']): string {
   return s === 'queued' ? 'queued'
