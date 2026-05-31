@@ -158,15 +158,16 @@ function makeGradientMat(): THREE.ShaderMaterial {
   })
 }
 
-// One subtle, translucent downward gravity arrow (muted amber).
-function gravityArrow(tipY: number, x: number, z: number, length: number, radius: number): THREE.Group {
+// One subtle, translucent gravity vector: it STARTS at the surface point and
+// points a short way straight down (muted amber).
+function gravityArrow(surfaceY: number, x: number, z: number, length: number, radius: number): THREE.Group {
   const g = new THREE.Group()
-  const mat = new THREE.MeshBasicMaterial({ color: 0xd9a84c, transparent: true, opacity: 0.3, depthWrite: false })
-  const sl = length * 0.8
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.36, radius * 0.36, sl, 6), mat)
-  shaft.position.set(x, tipY + length * 0.2 + sl / 2, z); g.add(shaft)
-  const head = new THREE.Mesh(new THREE.ConeGeometry(radius, length * 0.2, 10), mat)
-  head.rotation.x = Math.PI; head.position.set(x, tipY + length * 0.1, z); g.add(head)
+  const mat = new THREE.MeshBasicMaterial({ color: 0xd9a84c, transparent: true, opacity: 0.28, depthWrite: false })
+  const sl = length * 0.72
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.34, radius * 0.34, sl, 6), mat)
+  shaft.position.set(x, surfaceY - sl / 2, z); g.add(shaft)            // tail at the surface, going down
+  const head = new THREE.Mesh(new THREE.ConeGeometry(radius, length * 0.28, 10), mat)
+  head.rotation.x = Math.PI; head.position.set(x, surfaceY - sl - length * 0.14, z); g.add(head)
   return g
 }
 
@@ -179,7 +180,7 @@ function buildForceField(group: THREE.Group, content: THREE.Object3D, box: THREE
   const size = box.getSize(new THREE.Vector3())
   const R = Math.max(size.x, size.y, size.z, 1e-3)
   const rad = R * 0.011
-  const len = size.y * 0.3 + R * 0.04
+  const len = size.y * 0.09 + R * 0.03
   const ray = new THREE.Raycaster()
   const down = new THREE.Vector3(0, -1, 0)
   const N = 4
@@ -382,8 +383,11 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
   useEffect(() => {
     const r = refs.current
     if (!r || !pap) return
-    const com = pap.physical.com ?? [0, 0, 0]
-    const hx = pap.geometry.obb?.[0] ?? 0.2, hy = pap.geometry.obb?.[1] ?? 0.2
+    const com = canonCom(pap.physical.com, name)
+    // footprint half-extents: canonical horizontal axes (X, Y). glTF/glb are Y-up, so
+    // the horizontal pair is native X and Z (native Y is the height).
+    const obb = pap.geometry.obb, yup = /\.(gltf|glb)$/i.test(name)
+    const hx = obb?.[0] ?? 0.2, hy = (yup ? obb?.[2] : obb?.[1]) ?? 0.2
     const wx = pos[0] + com[0], wy = pos[1] + com[1], wz = pos[2] + com[2]
     r.meshHolder.position.set(pos[0], pos[1], pos[2])
     r.footprint.geometry.setFromPoints([
@@ -445,7 +449,7 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
           <div className="inertia-info">
             <div className="ii-h">Inertia</div>
             <div className="ii-row"><span>mass</span><b>{pap.physical.mass_kg.toFixed(1)} kg</b></div>
-            <div className="ii-row"><span>CoM height</span><b>{(pap.physical.com?.[2] ?? 0).toFixed(3)} m</b></div>
+            <div className="ii-row"><span>CoM height</span><b>{canonCom(pap.physical.com, name)[2].toFixed(3)} m</b></div>
             <div className="ii-row"><span>radius of gyration</span><b>{gyration(pap)}</b></div>
             <div className="ii-row"><span>hollow</span><b>{pap.physical.hollow ? 'yes' : 'no'}</b></div>
           </div>
@@ -478,6 +482,15 @@ const CAM_VIEWS: { v: 'top' | 'front' | 'side' | 'persp'; tip: string; face: Cub
   { v: 'side', tip: 'Side', face: 'right' },
   { v: 'persp', tip: 'Perspective', face: 'none' },
 ]
+
+// glTF/glb bake in Y-up; the viewer stands the mesh up with rot.x=+90° (Y→Z). The
+// baked CoM is in the file's native frame, so rotate it the same way to line the
+// marker up with the mesh (no-op for already-Z-up obj/stl).
+function canonCom(com: number[] | undefined, name: string): number[] {
+  const c = com ?? [0, 0, 0]
+  const e = (name.split('.').pop() || '').toLowerCase()
+  return (e === 'gltf' || e === 'glb') ? [c[0] ?? 0, -(c[2] ?? 0), c[1] ?? 0] : [c[0] ?? 0, c[1] ?? 0, c[2] ?? 0]
+}
 
 // Per-axis radius of gyration k_i = sqrt(I_ii / m): how far from the CoM the mass
 // effectively sits about each axis (bigger = harder to spin / topple that way).
