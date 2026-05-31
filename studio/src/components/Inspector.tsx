@@ -1,6 +1,7 @@
 import type { Node } from '@xyflow/react'
-import { BRONZE_X_MIN, BRONZE_X_MAX, type NodeKind, type NodeResult, type PlumbData, type PortType } from '../lib/engine'
+import { BRONZE_X_MIN, BRONZE_X_MAX, type NodeKind, type NodeOp, type NodeResult, type PlumbData, type PortType } from '../lib/engine'
 import { STATUS_COLOR, PORT_COLOR, KIND_LABEL } from '../lib/theme'
+import { OPS_BY_KIND } from '../lib/catalog'
 
 /** A selected wire, resolved to the endpoints + the port type it carries. */
 export type EdgeInfo = {
@@ -110,6 +111,9 @@ export default function Inspector({
   incoming,
   bronzeX,
   setBronzeX,
+  objects = [],
+  onChangeOp,
+  onBindAsset,
   onDelete,
   onDeleteEdge,
   onDeleteMany,
@@ -121,6 +125,9 @@ export default function Inspector({
   incoming: { label: string; type?: PortType }[]
   bronzeX: number
   setBronzeX: (x: number) => void
+  objects?: { id: string; label: string; sub?: string; mass?: number; com?: number[] }[]
+  onChangeOp: (id: string, op: NodeOp) => void
+  onBindAsset: (id: string, assetId: string, label: string, sub?: string) => void
   onDelete: (id: string) => void
   onDeleteEdge: (id: string) => void
   onDeleteMany: (ids: string[]) => void
@@ -145,6 +152,78 @@ export default function Inspector({
       <div className="inspector-kind">{KIND_LABEL[d.kind] ?? d.kind}</div>
       <div className="inspector-title">{d.label}</div>
       {d.sub && <div className="inspector-sub">{d.sub}</div>}
+
+      {d.kind === 'asset' ? (
+        <div className="inspector-section">
+          <div className="inspector-h">Object</div>
+          <select
+            className="inspector-select"
+            value={d.assetId ? `asset:${d.assetId}` : `op:${d.op}`}
+            onChange={(e) => {
+              const v = e.target.value
+              if (v.startsWith('asset:')) {
+                const o = objects.find((x) => x.id === v.slice(6))
+                if (o) onBindAsset(node.id, o.id, o.label, o.sub)
+              } else {
+                onChangeOp(node.id, v.slice(3) as NodeOp)
+              }
+            }}
+          >
+            {objects.length > 0 && (
+              <optgroup label="Imported assets">
+                {objects.map((o) => (
+                  <option key={o.id} value={`asset:${o.id}`}>{o.label}</option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label="Demo assets">
+              {OPS_BY_KIND.asset.map((o) => (
+                <option key={o.op} value={`op:${o.op}`}>{o.label}</option>
+              ))}
+            </optgroup>
+          </select>
+          {objects.length === 0 && (
+            <div className="inspector-detail">Import &amp; bake a mesh to bind a real object.</div>
+          )}
+        </div>
+      ) : (
+        OPS_BY_KIND[d.kind] && OPS_BY_KIND[d.kind].length > 1 && (
+          <div className="inspector-section">
+            <div className="inspector-h">Type</div>
+            <select
+              className="inspector-select"
+              value={d.op}
+              onChange={(e) => onChangeOp(node.id, e.target.value as NodeOp)}
+            >
+              {OPS_BY_KIND[d.kind].map((o) => (
+                <option key={o.op} value={o.op}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        )
+      )}
+
+      {d.kind === 'asset' && d.assetId && (() => {
+        const o = objects.find((x) => x.id === d.assetId)
+        if (!o || (o.mass === undefined && !o.com)) return null
+        return (
+          <div className="inspector-section">
+            <div className="inspector-h">Baked · PAP</div>
+            {o.mass !== undefined && (
+              <div className="inspector-row">
+                <span className="inspector-key">mass</span>
+                <span>{o.mass.toFixed(1)} kg</span>
+              </div>
+            )}
+            {o.com && (
+              <div className="inspector-row">
+                <span className="inspector-key">centre of mass</span>
+                <span>{o.com.map((n) => n.toFixed(2).replace(/^(-?)0\./, '$1.')).join(', ')}</span>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       <div className="inspector-section">
         <div className="inspector-h">Ports</div>

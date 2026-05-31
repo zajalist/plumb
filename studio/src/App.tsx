@@ -1,9 +1,10 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { IconDefs, Icon } from './Icons'
 import { Menubar } from './Menubar'
 import { AssetsPanel, type Asset } from './AssetsPanel'
 import { Viewport } from './Viewport'
 import { Properties } from './Properties'
+import { Inspector } from './Inspector'
 import { GateStack } from './GateStack'
 import { Splash } from './Splash'
 import { Stage, type BakeSettings } from './Stage'
@@ -14,9 +15,9 @@ import ConstraintGraph from './components/ConstraintGraph' // Fara's editable no
 import Palette from './components/Palette'
 import { INITIAL_SCENE, type SceneState } from './lib/engine'
 import { PROFILE_BASE } from './lib/bakeCatalog'
-import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health,
+import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health, swept,
   saveProject, openProjectData, fetchProjectFile, classifyCap,
-  type Verdict, type WdfDoc, type PAP, type CapPlane, type CapResult, type ProjectAsset } from './api'
+  type Verdict, type WdfDoc, type PAP, type Swept, type CapPlane, type CapResult, type ProjectAsset } from './api'
 import './App.css'
 
 // Hamilton product q = a ⊗ b (applies b first, then a), all [x,y,z,w].
@@ -75,9 +76,29 @@ export default function App() {
   const [leftW, setLeftW] = useState(248)
   const [rightW, setRightW] = useState(296)
 
+  // door swing articulation (WP-6): angle → real /swept wedge in the viewport
+  const [doorDeg, setDoorDeg] = useState(0)
+  const [sweptGeo, setSweptGeo] = useState<Swept | null>(null)
+
   // node-editor scene (Fara's editable constraint graph; its own live "knob")
   const [scene, setScene] = useState<SceneState>(INITIAL_SCENE)
   const setBronzeX = useCallback((x: number) => setScene((s) => ({ ...s, bronzeX: x })), [])
+
+  // Baked assets, as the node editor's selectable Objects (P1 sync). Import &
+  // bake → the asset appears in every Object node's dropdown (SYNC.md).
+  const objects = useMemo(
+    () =>
+      assets
+        .filter((a) => a.status === 'ok' && a.pap)
+        .map((a) => ({
+          id: a.pap!.asset_id,
+          label: a.name,
+          sub: `${a.pap!.semantics.cls} · ${a.pap!.physical.mass_kg.toFixed(1)}kg`,
+          mass: a.pap!.physical.mass_kg,
+          com: a.pap!.physical.com,
+        })),
+    [assets],
+  )
 
   const startResize = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
@@ -122,7 +143,7 @@ export default function App() {
   }, [leftW, rightW])
 
   // reset the loop when the selected asset changes
-  useEffect(() => { setPos([0, 0, 0]); setRot([0, 0, 0]); setScale(1); setVerdict(null) }, [sel])
+  useEffect(() => { setPos([0, 0, 0]); setRot([0, 0, 0]); setScale(1); setVerdict(null); setDoorDeg(0); setSweptGeo(null) }, [sel])
 
   // shared bake options from the global settings (a per-mesh profile overrides .profile).
   // Profiles are rich presets; the bake gets the underlying engine archetype.
@@ -265,6 +286,13 @@ export default function App() {
     try { await commit(objId, pos, quat(rot), scaleVec()) } finally { setBusy(false) }
   }, [objId, pos, rot, quat, scaleVec])
 
+  // Articulation (WP-6): set the door swing angle → fetch the real swept wedge.
+  const onDoorDeg = useCallback(async (deg: number) => {
+    setDoorDeg(deg)
+    if (!objId || deg <= 0) { setSweptGeo(null); return }
+    try { setSweptGeo(await swept(objId, deg)) } catch { setSweptGeo(null) }
+  }, [objId])
+
   // material-confirm loop: re-bake the selected mesh with the confirmed per-part
   // materials (now they drive physics) and lock them into the PAP.
   const onConfirmMaterials = useCallback(async (materials: Record<string, string>) => {
@@ -358,6 +386,11 @@ export default function App() {
   }, [])
 
   const canPlace = selected?.status === 'ok' && !!objId
+  // door articulation (WP-6): a slim control rendered as the Properties footer — placement
+  // itself lives in the GateStack now, so the Inspector is door-swing only.
+  const inspector = selected?.status === 'ok' && objId
+    ? <Inspector sweptDeg={doorDeg} onSweptDeg={onDoorDeg} />
+    : undefined
 
   if (screen === 'splash') {
     return (
@@ -407,11 +440,11 @@ export default function App() {
         <div className="col-resize" onPointerDown={startColResize('l')} role="separator" aria-orientation="vertical" title="Drag to resize" />
         <Viewport name={selected?.name ?? ''} file={selected?.file} extras={selected?.extras}
           pap={selected?.pap ?? null} pos={pos} rot={rot} scale={scale} verdict={verdict} status={selected?.status}
-          onDropFiles={onAddFiles} capping={capping} onApplyCap={onApplyCap}
+          swept={sweptGeo} onDropFiles={onAddFiles} capping={capping} onApplyCap={onApplyCap}
           onExitCap={() => setCapping(false)} busy={busy}
           capResult={capResult} onCapAgain={onStartCap} onDismissCap={() => setCapResult(null)} />
         <div className="col-resize" onPointerDown={startColResize('r')} role="separator" aria-orientation="vertical" title="Drag to resize" />
-        <Properties pap={selected?.pap ?? null}
+        <Properties pap={selected?.pap ?? null} footer={inspector}
           onConfirm={onConfirmMaterials} onCapOpenings={onStartCap} onAutoFill={onAutoFill} capping={capping}
           onEditPap={onEditPap} busy={busy} declared={selected?.wdf}
           {...(canPlace ? { scale, onScale: setScale } : {})} />
@@ -432,7 +465,7 @@ export default function App() {
         <div className="ne">
           <ReactFlowProvider>
             <Palette />
-            <ConstraintGraph scene={scene} setBronzeX={setBronzeX} />
+            <ConstraintGraph scene={scene} setBronzeX={setBronzeX} objects={objects} verdict={verdict} />
           </ReactFlowProvider>
         </div>
       </div>

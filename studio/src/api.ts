@@ -201,3 +201,8 @@ export const repair = (object: string, pos: number[], quat = DEFAULT_QUAT, scale
   post<Tf>('/repair', { object, pos, quat, scale })
 export const commit = (object: string, pos: number[], quat = DEFAULT_QUAT, scale = DEFAULT_SCALE) =>
   post<{ ok: boolean }>('/commit', { object, pos, quat, scale })
+
+// --- door swept-volume (WP-6 articulation) ---
+export type Swept = { vertices: number[][]; faces: number[][]; range_deg: number }
+export const swept = (object: string, range_deg: number) =>
+  post<Swept>('/swept', { object, range_deg })

@@ -55,6 +55,7 @@ type Refs = {
   human: THREE.Group          // 1.8 m human reference for scale comparison
   ruler: THREE.Group          // measure-tool markers + line (three world frame)
   showGiz: boolean            // corner orientation gizmo on/off
+  swept: THREE.Mesh           // door swept-volume keep-clear wedge (WP-6)
   setCam: (v: 'recenter' | 'top' | 'front' | 'side' | 'persp') => void
   raf: number
 }
@@ -489,10 +490,11 @@ function buildForceField(group: THREE.Group, content: THREE.Object3D, box: THREE
 /** Dark device stage: renders the real textured model (materials/textures intact),
  *  with an extensible mask rail (surface masks recolour, overlays stack). Plus the verdict
  *  viz (CoM, plumb, support footprint). Canonical is Z-up; world tilted so Z reads up. */
-export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale = 1, verdict, status, onDropFiles, capping, onApplyCap, onExitCap, busy, capResult, onCapAgain, onDismissCap }: {
+export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale = 1, verdict, status, swept, onDropFiles, capping, onApplyCap, onExitCap, busy, capResult, onCapAgain, onDismissCap }: {
   name: string; file?: File | null; extras?: File[]
   pap: PAP | null; pos: number[]; rot?: number[]; scale?: number; verdict: Verdict | null
   status?: 'queued' | 'converting' | 'baking' | 'ok' | 'error' | 'declared'
+  swept?: { vertices: number[][]; faces: number[][] } | null
   onDropFiles?: (files: File[]) => void
   capping?: boolean                       // the manual cap-plane tool is active
   onApplyCap?: (plane: CapPlane) => void  // re-bake the mesh with the placed cap plane
@@ -580,6 +582,12 @@ export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale 
     landing.rotation.x = -Math.PI / 2; landing.visible = false; world.add(landing)
     const human = buildHuman(); world.add(human)
     const ruler = new THREE.Group(); scene.add(ruler)   // measure markers live in three world coords
+    // door swept-volume wedge (WP-6): translucent amber keep-clear solid at origin
+    const swept = new THREE.Mesh(
+      new THREE.BufferGeometry(),
+      new THREE.MeshBasicMaterial({ color: AMBER, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }),
+    )
+    swept.visible = false; world.add(swept)
 
     cam.position.set(1.1, 0.85, 1.1)
     const controls = new OrbitControls(cam, renderer.domElement)
@@ -646,7 +654,7 @@ export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale 
       controls.update()
     }
 
-    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, model: null, capGizmo: null, transform: null, capContour: null, capCache: null, capDirty: false, capHalf: 0, forceGroup, forceBuilt: false, gradMat, groups: [], maskContent, maskGroups: [], overlayGroup, radius: 0.3, urls: [], footprint, comDot, plumb, landing, human, ruler, showGiz: true, setCam, raf: 0 }
+    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, model: null, capGizmo: null, transform: null, capContour: null, capCache: null, capDirty: false, capHalf: 0, forceGroup, forceBuilt: false, gradMat, groups: [], maskContent, maskGroups: [], overlayGroup, radius: 0.3, urls: [], footprint, comDot, plumb, landing, human, ruler, showGiz: true, swept, setCam, raf: 0 }
     refs.current = r
     tick()
     return () => {
@@ -981,6 +989,24 @@ export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale 
     if (!masks.some((m) => m.id === key) && !computing.has(key)) void runCompute(key)
     setOverlays((s) => new Set(s).add(key))
   }
+
+  // ---- door swept-volume wedge (WP-6) ----
+  useEffect(() => {
+    const r = refs.current
+    if (!r) return
+    const m = r.swept
+    if (!swept || !swept.vertices.length || !swept.faces.length) { m.visible = false; return }
+    const pos3 = new Float32Array(swept.vertices.length * 3)
+    swept.vertices.forEach((v, i) => { pos3[i * 3] = v[0]; pos3[i * 3 + 1] = v[1]; pos3[i * 3 + 2] = v[2] })
+    const idx: number[] = []
+    for (const f of swept.faces) idx.push(f[0], f[1], f[2])
+    const g = m.geometry
+    g.setAttribute('position', new THREE.BufferAttribute(pos3, 3))
+    g.setIndex(idx)
+    g.computeVertexNormals()
+    g.computeBoundingSphere()
+    m.visible = true
+  }, [swept])
 
   return (
     <section className="pane viewport">

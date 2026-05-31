@@ -487,3 +487,39 @@ def delete_mask(asset_id: str, mask_id: str) -> dict:
     from cortex.masks import store
 
     return {"ok": store.delete(asset_id, mask_id)}
+
+
+class SweptReq(BaseModel):
+    """Author a door/articulated asset's opening: hinge axis + swing range."""
+
+    object: str
+    range_deg: float = 90.0
+    axis: list[float] = [0.0, 0.0, 1.0]
+    hinge: list[float] = [0.0, 0.0, 0.0]
+
+
+@app.post("/swept")
+def swept(req: SweptReq) -> dict:
+    """Door swept-volume wedge for a baked asset (WP-6 / articulation).
+
+    Real geometry from ``cortex.bake_profiles.door.swept_volume`` — the union of
+    door poses from 0° to ``range_deg`` about the hinge axis. Returns the wedge as
+    raw ``vertices``/``faces`` for the studio Viewport to render as a keep-clear
+    overlay (the ``door_clear`` gate checks collision against this solid).
+    """
+    from contracts import Transform
+    from cortex.bake_profiles.door import swept_volume
+
+    pap = _ASSETS.get(req.object)
+    if pap is None:
+        raise HTTPException(status_code=404, detail=f"unknown asset {req.object!r}; bake it first")
+    pap.__dict__["_joint"] = {"axis": req.axis, "range_deg": req.range_deg, "hinge_point": req.hinge}
+    try:
+        mesh = swept_volume(pap, Transform(pos=[0.0, 0.0, 0.0]))
+    except Exception as e:  # degenerate joint / mesh — surface, don't crash
+        raise HTTPException(status_code=422, detail=f"swept failed: {e}") from e
+    return {
+        "vertices": [[float(x) for x in v] for v in mesh.vertices],
+        "faces": [[int(i) for i in f] for f in mesh.faces],
+        "range_deg": req.range_deg,
+    }
