@@ -182,4 +182,9 @@ MCP_TOOLS: dict[str, str] = {
     "validate_operation":  "(diff: Diff) -> Verdict",
     "suggest_transform":   "(obj: str, intent: dict) -> Transform",
     "commit":              "(diff: Diff) -> bool",
+    # Mask system (design 2026-05-31) — agents author/compute semantic masks.
+    "list_masks":          "(asset_id: str) -> list[Mask]",
+    "add_mask":            "(asset_id, name, archetype, data, category) -> Mask",
+    "compute_mask":        "(asset_id, provider_key) -> Mask",
+    "remove_mask":         "(asset_id, mask_id) -> bool",
 }

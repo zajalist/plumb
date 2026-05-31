@@ -89,9 +89,22 @@ _MASKS_PROMPT = (
     "You are PLUMB's mask author. These are renders of ONE 3D asset. Reason about it and "
     "respond with ONLY compact JSON, no prose:\n"
     '{"affordances":[{"verb":"<agent action e.g. sit/grasp/place_on>","where":"top|middle|base|side|center"}],'
-    '"fragility":[{"band":"top|middle|bottom","score":0.0}],"confidence":0.0}\n'
-    "Rules: fragility score is 0 (sturdy) to 1 (very delicate) for that vertical third. "
-    "Give all three bands. affordances are concrete actions with a coarse location. Keep it concise."
+    '"fragility":[{"band":"top|middle|bottom","score":0.0}],'
+    '"graspability":[{"band":"top|middle|bottom","score":0.0}],'
+    '"wear":[{"band":"top|middle|bottom","score":0.0}],'
+    '"load_bearing":[{"band":"top|middle|bottom","score":0.0}],'
+    '"value":[{"band":"top|middle|bottom","score":0.0}],'
+    '"attach_load":[{"band":"top|middle|bottom","score":0.0}],'
+    '"confidence":0.0}\n'
+    "Each *_band array must give ALL THREE bands (top/middle/bottom vertical thirds), each "
+    "score 0..1:\n"
+    "- fragility: 0 sturdy, 1 very delicate.\n"
+    "- graspability: 0 impossible to grip, 1 an ideal handle/grip.\n"
+    "- wear: 0 pristine, 1 heavily worn / weathered / damaged.\n"
+    "- load_bearing: 0 decorative, 1 carries the asset's own structural load.\n"
+    "- value: 0 cheap/common, 1 precious/valuable.\n"
+    "- attach_load: 0 holds nothing, 1 can bear heavy weight if you mount or hang an object there.\n"
+    "affordances are concrete actions with a coarse location. Keep it concise."
 )
 
 

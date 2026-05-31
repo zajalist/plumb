@@ -25,6 +25,17 @@ plumb-refined.png
 
 # Secrets — Gemini API key fallback (semantics.py reads this if env unset)
 .gemini_key
+# Secrets — Hugging Face token fallback (mask providers read this if env unset)
+.hf_token
+# Vultr-hosted mask box — public URL + bearer token fallbacks (vultr provider reads these)
+.vultr_url
+.vultr_token
+# Node deps + machine-specific MCP config (absolute local paths) — never commit
+node_modules/
+.mcp.json
+# Generated artifacts — HaybaMCP search indexes + placement exports
+Saved/
+forest_placement.wdf
 
 # studio test artifacts / screenshots
 studio/test_figure.obj

@@ -49,6 +49,11 @@ class Placement(BaseModel):
     object: str
     pos: list[float]
     quat: list[float] = [0.0, 0.0, 0.0, 1.0]
+    scale: list[float] = [1.0, 1.0, 1.0]
+    # Free-standing stability model: the support base co-moves with the body (an
+    # object resting on the floor/terrain), so off-origin placement no longer
+    # topples it — only real tilt/slope does. False → the anchored pedestal model.
+    free_standing: bool = False
 
 
 def _place(p: Placement):
@@ -57,13 +62,25 @@ def _place(p: Placement):
 
     if p.object not in _ASSETS:
         raise HTTPException(status_code=404, detail=f"unknown asset {p.object!r}; bake it first")
-    tf = Transform(pos=p.pos, quat=p.quat)
+    tf = Transform(pos=p.pos, quat=p.quat, scale=p.scale)
     world = _world()
     if p.object in world.nodes():
         world.update_transform(p.object, tf)
     else:
         world.add(p.object, _ASSETS[p.object], tf)
     return tf
+
+
+def _persist_geometry(asset_id: str, mesh_path: str, parts: list[dict]) -> None:
+    """Park the converted mesh + convex parts on disk so mask providers can recompute
+    later (the in-memory PAP doesn't keep parts geometry). Best-effort — never fails a bake."""
+    try:
+        from cortex.masks import store
+
+        store.save_mesh(asset_id, mesh_path)
+        store.save_parts(asset_id, parts)
+    except Exception:
+        pass
 
 
 def _cortex_available() -> bool:
@@ -75,13 +92,45 @@ def _cortex_available() -> bool:
         return False
 
 
+def _hf_status() -> dict:
+    """Whether the HF Inference-API mask providers can run (token present).
+
+    Kept inline (not via the providers package) so /health stays import-light — the
+    token resolution mirrors ``cortex/masks/providers/hf._hf_token``."""
+    import os
+    from pathlib import Path
+
+    tok = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
+    if not tok:
+        f = Path(__file__).resolve().parents[1] / ".hf_token"
+        try:
+            tok = f.read_text(encoding="utf-8").strip()
+        except OSError:
+            tok = ""
+    return {"available": bool(tok), "key": bool(tok)}
+
+
+def _vultr_status() -> dict:
+    """Whether the Vultr-hosted mask providers can run (URL configured + box reachable).
+
+    Delegates to the provider module so the URL resolution + cached health ping stay in one
+    place (mirrors how ``cortex/masks/providers/vultr`` gates availability)."""
+    try:
+        from cortex.masks.providers import vultr
+        url = vultr._vultr_url()
+        return {"available": bool(url) and vultr._health_ok(), "url": bool(url)}
+    except Exception:
+        return {"available": False, "url": False}
+
+
 @app.get("/health")
 def health() -> dict:
-    """Liveness + whether cortex, Unreal convert, and the Gemini semantic bake are wired."""
+    """Liveness + whether cortex, Unreal convert, Gemini, HF, and Vultr masks are wired."""
     from studio.semantics import gemini_status
     from studio.uasset import ue_status
 
-    return {"ok": True, "cortex": _cortex_available(), "ue": ue_status(), "gemini": gemini_status()}
+    return {"ok": True, "cortex": _cortex_available(), "ue": ue_status(),
+            "gemini": gemini_status(), "hf": _hf_status(), "vultr": _vultr_status()}
 
 
 @app.post("/semantics")
@@ -227,6 +276,7 @@ async def bake(
         raise HTTPException(status_code=422, detail=f"bake failed: {msg}") from e
 
     _ASSETS[asset_id] = pap
+    _persist_geometry(asset_id, path, parts)
     return {**pap.model_dump(), "parts": parts}
 
 
@@ -290,6 +340,7 @@ def bake_cached(b: CachedBake) -> dict:
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"bake failed: {e}") from e
     _ASSETS[asset_id] = pap
+    _persist_geometry(asset_id, path, parts)
     return {**pap.model_dump(), "parts": parts}
 
 
@@ -370,7 +421,8 @@ def validate(p: Placement) -> dict:
     from cortex.orchestrator import validate_operation
 
     tf = _place(p)
-    verdict = validate_operation(_world(), Diff(object=p.object, transform=tf))
+    laws = [{"law": "free_standing"}] if p.free_standing else None
+    verdict = validate_operation(_world(), Diff(object=p.object, transform=tf), laws=laws)
     return verdict.model_dump()
 
 
@@ -389,6 +441,132 @@ def commit(p: Placement) -> dict:
     """Commit the placement into the session world (UE5 dispatch is a later WP)."""
     _place(p)
     return {"ok": True, "object": p.object}
+
+
+# --------------------------------------------------------------------------- #
+# Masks (design 2026-05-31) — the extensible semantic-overlay system. The UI
+# reads/computes masks here; the cortex MCP server writes to the same on-disk
+# store, so agent-authored masks appear in the UI on the next GET /masks.
+# --------------------------------------------------------------------------- #
+@app.get("/masks/providers")
+def mask_providers() -> dict:
+    """Catalog metadata the rail renders from (key, source, archetype, role, available)."""
+    import cortex.masks as masks
+
+    masks.load_providers()
+    return {"providers": masks.catalog()}
+
+
+@app.get("/masks/{asset_id}")
+def get_masks(asset_id: str) -> dict:
+    """All masks currently stored for an asset (UI + agent contributions)."""
+    from cortex.masks import store
+
+    return {"masks": [m.model_dump() for m in store.list_masks(asset_id)]}
+
+
+@app.post("/masks/{asset_id}/compute")
+async def compute_mask(
+    asset_id: str,
+    provider_key: str = Form(...),
+    params: str = Form(default=""),
+    images: list[UploadFile] = File(default=[]),
+) -> dict:
+    """Run a mask provider for an asset, store the result, and return the Mask.
+
+    ``images`` (rendered PNGs) are required by HF/Gemini/Vultr providers; geometry providers
+    ignore them. ``params`` is an optional JSON blob of per-compute knobs (e.g. the Vultr
+    ``text_mask`` ``prompt``). 404 unknown asset · 503 provider unavailable/needs key · 502 compute error.
+    """
+    import json as _json
+
+    import cortex.masks as masks
+    from cortex.masks import store
+    from cortex.masks.registry import Asset
+    from fastapi.concurrency import run_in_threadpool
+
+    masks.load_providers()
+    if asset_id not in _ASSETS:
+        raise HTTPException(status_code=404, detail=f"unknown asset {asset_id!r}; bake it first")
+    img_bytes = [await f.read() for f in images] if images else []
+    try:
+        mask_params = _json.loads(params) if params else {}
+    except ValueError:
+        mask_params = {}
+    asset = Asset(asset_id, pap=_ASSETS[asset_id], parts=store.load_parts(asset_id),
+                  images=img_bytes, mask_params=mask_params)
+    try:
+        # Run the heavy CPU/network compute OFF the event loop so the backend (and the
+        # studio) stay responsive — otherwise a single compute freezes every request.
+        mask = await run_in_threadpool(masks.compute, asset, provider_key)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except (RuntimeError, ValueError) as e:
+        # unavailable provider / missing key / needs images → 503 (configuration), else 502
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"mask compute failed: {e}") from e
+    return mask.model_dump()
+
+
+@app.delete("/masks/{asset_id}/{mask_id}")
+def delete_mask(asset_id: str, mask_id: str) -> dict:
+    from cortex.masks import store
+
+    return {"ok": store.delete(asset_id, mask_id)}
+
+
+# --------------------------------------------------------------------------- #
+# Placement distributions — the studio captures demonstrated placements; the MCP
+# server serves the learned distribution to an agent. Shared bakes/placements store.
+# --------------------------------------------------------------------------- #
+class PlacementExample(BaseModel):
+    """One demonstrated placement of an asset on a tagged reference surface (surface frame)."""
+
+    tag: str
+    orientation: str = "horizontal"
+    normal_offset: float = 0.0
+    tilt_deg: float = 0.0
+    yaw_deg: float = 0.0
+    lateral: list[float] = [0.0, 0.0]
+    noise: dict | None = None
+
+
+@app.get("/placement/{asset_id}")
+def get_placements(asset_id: str) -> dict:
+    """All captured examples for an asset + per-tag counts."""
+    from cortex import placement_store
+
+    return {"examples": placement_store.load(asset_id).get("examples", []),
+            "tags": placement_store.tags(asset_id)}
+
+
+@app.post("/placement/{asset_id}")
+def add_placement(asset_id: str, ex: PlacementExample) -> dict:
+    """Capture one demonstrated placement example."""
+    from cortex import placement_store
+
+    stored = placement_store.add_example(asset_id, ex.model_dump())
+    return {"ok": True, "example": stored, "tags": placement_store.tags(asset_id)}
+
+
+@app.get("/placement/{asset_id}/dist/{tag}")
+def placement_distribution(asset_id: str, tag: str) -> dict:
+    """The aggregated distribution (mean + spread) for one surface tag."""
+    from cortex import placement_store
+
+    dist = placement_store.distribution(asset_id, tag)
+    if dist is None:
+        raise HTTPException(status_code=404, detail=f"no '{tag}' examples for {asset_id!r}")
+    return dist
+
+
+@app.delete("/placement/{asset_id}")
+def clear_placements(asset_id: str, tag: str | None = None) -> dict:
+    """Clear all examples, or just one tag's (``?tag=table``)."""
+    from cortex import placement_store
+
+    return {"remaining": placement_store.clear(asset_id, tag)}
 
 
 class SweptReq(BaseModel):

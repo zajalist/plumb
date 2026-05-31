@@ -166,6 +166,48 @@ def facing(world, params: dict) -> ConstraintResult:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# min_spacing law (soft by default) — forest comfort spacing
+# ──────────────────────────────────────────────────────────────────────────────
+
+@_register("min_spacing")
+def min_spacing(world, params: dict) -> ConstraintResult:
+    """Every pair of placed nodes is at least ``distance_m`` apart in the ground plane
+    (origin-to-origin XY — trunk-to-trunk for trees). The collision gate already forbids
+    overlap; this adds a comfort margin so a forest isn't jammed together.
+
+    Parameters (in ``params``)
+    --------------------------
+    distance_m : float
+        Required separation in metres (default 1.0).
+    hard : bool
+        If true the law gates (a too-close pair fails the scene); default soft (it only
+        accumulates ``magnitude`` into the soft cost).
+
+    Returns
+    -------
+    ConstraintResult: ``magnitude`` = the largest shortfall across all pairs (0 if clear).
+    """
+    distance = float(params.get("distance_m", 1.0))
+    hard = bool(params.get("hard", False))
+    ids = world.nodes()
+    worst = 0.0
+    closest: tuple[str, str, float] | None = None
+    for i in range(len(ids)):
+        a = world.get(ids[i]).transform.pos
+        for j in range(i + 1, len(ids)):
+            b = world.get(ids[j]).transform.pos
+            d = math.hypot(float(a[0]) - float(b[0]), float(a[1]) - float(b[1]))
+            short = distance - d
+            if short > worst:
+                worst, closest = short, (ids[i], ids[j], d)
+    ok = worst < 1e-9
+    detail = (f"{closest[0]}↔{closest[1]} {closest[2] * 100:.0f}cm (< {distance * 100:.0f}cm)"
+              if closest else "spacing ok")
+    return ConstraintResult(name="min_spacing", ok=ok, hard=hard,
+                            magnitude=float(round(max(0.0, worst), 4)), detail=detail)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # com_over_base law (hard)
 # ──────────────────────────────────────────────────────────────────────────────
 

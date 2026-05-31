@@ -16,7 +16,6 @@ export default function Palette() {
   return (
     <aside className="palette">
       <div className="palette-head">Library</div>
-      <div className="palette-hint">drag onto the canvas · configure in inspector</div>
       <div className="palette-cat">
         {ABSTRACT_PALETTE.map((item) => (
           <div
@@ -27,7 +26,6 @@ export default function Palette() {
             title={item.hint}
           >
             <span className="palette-item-label">{item.label}</span>
-            <span className="palette-item-sub">{item.hint}</span>
           </div>
         ))}
       </div>

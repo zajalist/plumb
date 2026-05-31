@@ -39,7 +39,8 @@ export function DragField({ value, onChange, min = -2, max = 2, step = 0.01, dec
   if (editing) {
     return (
       <input
-        type="number" step={step} autoFocus defaultValue={value}
+        className="dragedit" type="number" step={step} autoFocus defaultValue={value}
+        onFocus={(e) => e.target.select()}
         onBlur={(e) => { onChange(clamp(parseFloat(e.target.value) || 0)); setEditing(false) }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()

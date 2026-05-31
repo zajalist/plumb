@@ -73,11 +73,14 @@ class Asset:
     """Everything a provider may need, assembled once per compute."""
 
     def __init__(self, asset_id: str, pap: Any = None,
-                 parts: Optional[list[dict]] = None, images: Optional[list[bytes]] = None):
+                 parts: Optional[list[dict]] = None, images: Optional[list[bytes]] = None,
+                 mask_params: Optional[dict] = None):
         self.asset_id = asset_id
         self.pap = pap
         self.parts = parts if parts is not None else store.load_parts(asset_id)
         self.images = images or []
+        # Optional per-compute knobs a provider may read (e.g. the text-mask `prompt`).
+        self.mask_params = mask_params or {}
         self._mesh = None
 
     def mesh(self):

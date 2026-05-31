@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8">
+<title>PLUMB logo</title>
+<style>
+  body{margin:0;background:#2b2b2b;font-family:system-ui;display:flex;flex-wrap:wrap;gap:32px;padding:40px;align-items:flex-start}
+  .card{display:flex;flex-direction:column;gap:10px;align-items:center}
+  .card img{width:300px;height:300px;border-radius:18px;box-shadow:0 8px 30px rgba(0,0,0,.4);background:#f4f2ec}
+  .small{width:64px!important;height:64px!important;border-radius:12px}
+  .row{display:flex;gap:14px;align-items:center}
+  span{color:#eee;font-size:14px}
+</style>
+<div class="card"><img id="p"><div class="row"><img id="ps" class="small"></div><span>plumb (current)</span></div>
+<div class="card"><img id="b"><div class="row"><img id="bs" class="small"></div><span>modern (old)</span></div>
+<div class="card"><img id="a"><div class="row"><img id="as" class="small"></div><span>vintage (old)</span></div>
+<script>
+  const v = Date.now();
+  p.src = ps.src = 'plumb.svg?'+v;
+  b.src = bs.src = 'plumb_modern.svg?'+v;
+  a.src = as.src = 'plumb_vintage.svg?'+v;
+</script>

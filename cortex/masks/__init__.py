@@ -28,7 +28,9 @@ def load_providers() -> None:
 
 
 def compute_for(asset_id: str, provider_key: str, pap=None,
-                parts: Optional[list[dict]] = None, images: Optional[list[bytes]] = None) -> Mask:
+                parts: Optional[list[dict]] = None, images: Optional[list[bytes]] = None,
+                mask_params: Optional[dict] = None) -> Mask:
     """Convenience used by the servers: build an Asset and run a provider."""
     load_providers()
-    return compute(Asset(asset_id, pap=pap, parts=parts, images=images), provider_key)
+    return compute(Asset(asset_id, pap=pap, parts=parts, images=images,
+                         mask_params=mask_params), provider_key)

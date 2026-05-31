@@ -24,6 +24,12 @@ export function addRecent(name: string): RecentEntry[] {
   return next
 }
 
+export function removeRecent(name: string): RecentEntry[] {
+  const next = getRecent().filter((e) => e.name !== name)
+  try { localStorage.setItem(KEY, JSON.stringify(next)) } catch { /* ignore */ }
+  return next
+}
+
 export function clearRecent(): void {
   try { localStorage.removeItem(KEY) } catch { /* ignore */ }
 }

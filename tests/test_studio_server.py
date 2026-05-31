@@ -6,6 +6,8 @@ genuine end-to-end check of the studio's backend, not a mock.
 """
 from __future__ import annotations
 
+import json
+
 import trimesh
 from fastapi.testclient import TestClient
 
@@ -13,6 +15,46 @@ from studio.server import app
 from tests.helpers import save_mesh_tmp, two_part_topheavy
 
 client = TestClient(app)
+
+
+def test_project_save_list_open_file_roundtrip(tmp_path, monkeypatch):
+    """A project saved through the HTTP surface lists, reopens, and serves its files
+    back byte-for-byte — the Save / Open / Open-recent flow end to end."""
+    import studio.project as project
+
+    monkeypatch.setattr(project, "PROJ_DIR", str(tmp_path))
+    name = "Demo Project"
+    manifest = [{
+        "id": "rock_01", "name": "rock.obj", "main": "rock.obj",
+        "files": ["rock.obj"], "profile": "rigid_prop", "pap": None,
+    }]
+
+    saved = client.post(
+        "/project/save",
+        data={"name": name, "manifest": json.dumps(manifest)},
+        files=[("files", ("rock_01__rock.obj", b"OBJ-BYTES", "text/plain"))],
+    )
+    assert saved.status_code == 200, saved.text
+
+    listed = client.get("/project/list").json()["projects"]
+    assert any(p["name"] == name for p in listed), listed
+
+    opened = client.get("/project/open", params={"name": name})
+    assert opened.status_code == 200, opened.text
+    data = opened.json()
+    assert data["manifest"]["assets"][0]["id"] == "rock_01"
+
+    got = client.get("/project/file", params={"name": name, "asset_id": "rock_01", "file": "rock.obj"})
+    assert got.status_code == 200
+    assert got.content == b"OBJ-BYTES"
+
+
+def test_open_missing_project_is_404(tmp_path, monkeypatch):
+    import studio.project as project
+
+    monkeypatch.setattr(project, "PROJ_DIR", str(tmp_path))
+    r = client.get("/project/open", params={"name": "nope"})
+    assert r.status_code == 404
 
 
 def test_health_reports_cortex_present():

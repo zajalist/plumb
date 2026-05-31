@@ -13,6 +13,7 @@ export type Asset = {
   wdf?: WdfAsset         // present when this asset came from a .wdf vocabulary
   folder?: string        // organisational folder (optional)
   color?: string         // user colour-code (optional)
+  profile?: string       // per-mesh bake profile (chosen in the stage before baking)
 }
 
 const COLORS = ['#34C0AD', '#D9A84C', '#E0694F', '#5C8BD6', '#A088B0', '#6FBF73', '#7C8AA0']
@@ -31,7 +32,7 @@ export function AssetsPanel({ assets, selected, onSelect, onImport, onDelete, on
   assets: Asset[]
   selected: string | null
   onSelect: (id: string) => void
-  onImport: (f: File) => void
+  onImport: (files: File[]) => void
   onDelete?: (id: string) => void
   onUpdate?: (id: string, patch: Partial<Asset>) => void
 }) {
@@ -120,8 +121,8 @@ export function AssetsPanel({ assets, selected, onSelect, onImport, onDelete, on
             <Icon name="import" />
             <div className="dz">Drop a mesh to bake</div>
             <div className="dz2">.obj · .glb · .stl</div>
-            <input type="file" accept=".obj,.glb,.stl" style={{ display: 'none' }}
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f) }} />
+            <input type="file" accept=".obj,.glb,.gltf,.stl,.uasset,.bin,.png,.jpg,.jpeg,.webp,.ktx2" multiple style={{ display: 'none' }}
+              onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) onImport(fs); e.currentTarget.value = '' }} />
           </label>
         </div>
       </div>

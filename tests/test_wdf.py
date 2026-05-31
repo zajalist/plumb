@@ -242,3 +242,109 @@ def test_dumps_sorts_assets_and_laws_for_stable_diffs():
     assert text.index("asset bronze_figure") < text.index("asset oak_door")
     # round-trip is still identity regardless of input ordering
     assert loads(text) == loads(dumps(loads(text)))
+
+
+# --------------------------------------------------------------------------- #
+# MUST-FIX 1 — round-trip is identity for an UNSORTED in-memory vocabulary.
+# `dumps` sorts assets by name, but `parse` keeps file order; a vocabulary is a
+# dictionary, so equality must be order-insensitive over assets.
+# --------------------------------------------------------------------------- #
+def test_round_trip_identity_for_unsorted_vocabulary():
+    doc = WdfDocument(vocabulary=Vocabulary(assets=[Asset(name="zebra"),
+                                                    Asset(name="apple")]))
+    assert loads(dumps(doc)) == doc
+
+
+def test_vocabulary_equality_is_order_insensitive():
+    a = Vocabulary(assets=[Asset(name="zebra"), Asset(name="apple")])
+    b = Vocabulary(assets=[Asset(name="apple"), Asset(name="zebra")])
+    assert a == b
+
+
+def test_documents_with_reordered_assets_are_equal():
+    d1 = WdfDocument(vocabulary=Vocabulary(assets=[Asset(name="b"), Asset(name="a")]))
+    d2 = WdfDocument(vocabulary=Vocabulary(assets=[Asset(name="a"), Asset(name="b")]))
+    assert d1 == d2
+
+
+# --------------------------------------------------------------------------- #
+# MUST-FIX 2 — dumps must never emit something loads can't parse back.
+# (a) numeric field value, (b) unit-less load_cap, (c) sci-notation floats.
+# --------------------------------------------------------------------------- #
+def test_round_trip_numeric_field_value():
+    doc = WdfDocument(vocabulary=Vocabulary(),
+                      scene=Scene(name="s", fields=[Field(key="temp", value="20")]))
+    assert loads(dumps(doc)) == doc
+
+
+def test_round_trip_unitless_load_cap():
+    vase = Asset(name="glass_vase", load_cap="5")
+    doc = WdfDocument(vocabulary=Vocabulary(assets=[vase]))
+    assert loads(dumps(doc)) == doc
+
+
+def test_round_trip_negative_and_decimal_field_values():
+    # The widened value grammar must also accept signed/decimal numerics so the
+    # round-trip invariant holds for any numeric a field can legitimately carry.
+    for raw in ("-3.5", "-7", "0.25"):
+        doc = WdfDocument(vocabulary=Vocabulary(),
+                          scene=Scene(name="s", fields=[Field(key="tilt", value=raw)]))
+        back = loads(dumps(doc))
+        assert back == doc
+        assert back.scene.fields[0].value == raw
+
+
+def test_round_trip_sub_unit_float_joint_range():
+    # A sub-unit float bound (1e-5 == 0.00001) must not be emitted in sci-notation.
+    door = Asset(name="hinge",
+                 joint=Joint(axis="hinge", range_min=1e-5, range_max=95.0))
+    doc = WdfDocument(vocabulary=Vocabulary(assets=[door]))
+    text = dumps(doc)
+    assert "e-" not in text and "E-" not in text  # no exponent form leaks out
+    assert loads(text) == doc
+
+
+def test_round_trip_string_field_value_still_works():
+    # NAME-shaped values must keep working after the grammar is widened.
+    doc = WdfDocument(vocabulary=Vocabulary(),
+                      scene=Scene(name="s", fields=[Field(key="season", value="autumn")]))
+    assert loads(dumps(doc)) == doc
+
+
+# --------------------------------------------------------------------------- #
+# MUST-FIX 3 — LAW_EXPR must not truncate on a literal 'hard'/'soft' inside it.
+# Only a TRAILING hardness keyword terminates the expression.
+# --------------------------------------------------------------------------- #
+def test_round_trip_law_expr_containing_literal_hard_and_soft():
+    law = Law(name="L", expr="limit hard cap and soft floor", hard=True)
+    doc = WdfDocument(vocabulary=Vocabulary(),
+                      scene=Scene(name="s", laws=[law]))
+    back = loads(dumps(doc))
+    assert back == doc
+    assert back.scene.laws[0].expr == "limit hard cap and soft floor"
+    assert back.scene.laws[0].hard is True
+
+
+def test_round_trip_law_expr_ending_in_word_before_hardness():
+    law = Law(name="L", expr="limit hard cap", hard=True)
+    doc = WdfDocument(vocabulary=Vocabulary(), scene=Scene(name="s", laws=[law]))
+    assert loads(dumps(doc)) == doc
+
+
+# --------------------------------------------------------------------------- #
+# MUST-FIX 4 — scene-name STRING escapes must be symmetric (write escapes,
+# read unescapes), so a name with a quote/backslash/newline round-trips.
+# --------------------------------------------------------------------------- #
+def test_round_trip_scene_name_with_quote_and_backslash():
+    doc = WdfDocument(vocabulary=Vocabulary(),
+                      scene=Scene(name='a"b\\c'))
+    back = loads(dumps(doc))
+    assert back == doc
+    assert back.scene.name == 'a"b\\c'
+
+
+def test_round_trip_scene_name_with_newline():
+    doc = WdfDocument(vocabulary=Vocabulary(), scene=Scene(name="line1\nline2"))
+    back = loads(dumps(doc))
+    assert back == doc
+    assert back.scene.name == "line1\nline2"

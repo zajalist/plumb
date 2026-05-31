@@ -79,10 +79,22 @@ class Law:
     hard: bool = True
 
 
-@dataclass
+@dataclass(eq=False)
 class Vocabulary:
-    """The dictionary — the importable asset+profile pack for a scene."""
+    """The dictionary — the importable asset+profile pack for a scene.
+
+    A vocabulary is an *unordered* dictionary keyed by asset name, so equality is
+    order-insensitive: two vocabularies are equal when they hold the same assets
+    regardless of list order. This keeps `loads(dumps(doc)) == doc` true even when
+    the in-memory assets aren't alphabetical (`dumps` emits them sorted for stable
+    diffs, while `parse` preserves file order).
+    """
     assets: list[Asset] = field(default_factory=list)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Vocabulary):
+            return NotImplemented
+        return {a.name: a for a in self.assets} == {a.name: a for a in other.assets}
 
 
 @dataclass

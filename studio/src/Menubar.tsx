@@ -4,9 +4,11 @@ import { listProjects, type ProjectInfo } from './api'
 // The top menu bar: a text wordmark + working dropdown menus. Every item does a
 // real thing — file dialogs, undo/redo (dispatched to the node editor's global key
 // handler), fullscreen, docs, about.
-type Item = 'sep' | { label: string; accel?: string; onClick?: () => void; disabled?: boolean }
+type Item = 'sep' | { label: string; accel?: string; onClick?: () => void; disabled?: boolean; checked?: boolean }
 
-export function Menubar({ projectName, assetCount, onNew, onOpenWdf, onImport, onSaveProject, onOpenProject }: {
+type Panels = { assets: boolean; properties: boolean; gates: boolean; nodeEditor: boolean }
+
+export function Menubar({ projectName, assetCount, onNew, onOpenWdf, onImport, onSaveProject, onOpenProject, panels, onTogglePanel }: {
   projectName: string
   assetCount: number
   onNew: () => void
@@ -14,6 +16,8 @@ export function Menubar({ projectName, assetCount, onNew, onOpenWdf, onImport, o
   onImport: (files: File[]) => void
   onSaveProject?: (name: string) => void | Promise<void>
   onOpenProject?: (name: string) => void | Promise<void>
+  panels?: Panels
+  onTogglePanel?: (k: keyof Panels) => void
 }) {
   const [open, setOpen] = useState<string | null>(null)
   const [about, setAbout] = useState(false)
@@ -22,6 +26,12 @@ export function Menubar({ projectName, assetCount, onNew, onOpenWdf, onImport, o
   const [saving, setSaving] = useState(false)
   const [openOpen, setOpenOpen] = useState(false)
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null)
+  const [isFull, setIsFull] = useState(() => !!document.fullscreenElement)
+  useEffect(() => {
+    const h = () => setIsFull(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', h)
+    return () => document.removeEventListener('fullscreenchange', h)
+  }, [])
   const barRef = useRef<HTMLDivElement>(null)
   const wdfInput = useRef<HTMLInputElement>(null)
   const meshInput = useRef<HTMLInputElement>(null)
@@ -68,7 +78,13 @@ export function Menubar({ projectName, assetCount, onNew, onOpenWdf, onImport, o
       { label: 'Redo', accel: 'Ctrl Y', onClick: () => sendKey('z', true) },
     ],
     View: [
-      { label: document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen', accel: 'F11', onClick: fullscreen },
+      { label: isFull ? 'Exit fullscreen' : 'Fullscreen', accel: 'F11', onClick: fullscreen },
+    ],
+    Window: [
+      { label: 'Gate stack', checked: panels?.gates ?? true, onClick: () => onTogglePanel?.('gates') },
+      { label: 'Assets', checked: panels?.assets ?? true, onClick: () => onTogglePanel?.('assets') },
+      { label: 'Properties', checked: panels?.properties ?? true, onClick: () => onTogglePanel?.('properties') },
+      { label: 'Node editor', checked: panels?.nodeEditor ?? true, onClick: () => onTogglePanel?.('nodeEditor') },
     ],
     Tools: [
       { label: 'New bake…', onClick: onNew },
@@ -80,7 +96,11 @@ export function Menubar({ projectName, assetCount, onNew, onOpenWdf, onImport, o
     ],
   }
 
-  const run = (it: Exclude<Item, 'sep'>) => { if (it.disabled) return; setOpen(null); it.onClick?.() }
+  const run = (it: Exclude<Item, 'sep'>) => {
+    if (it.disabled) return
+    it.onClick?.()
+    if (it.checked === undefined) setOpen(null)   // toggles keep the menu open
+  }
 
   return (
     <div className="menubar" ref={barRef}>
@@ -99,8 +119,11 @@ export function Menubar({ projectName, assetCount, onNew, onOpenWdf, onImport, o
                 {items.map((it, i) => it === 'sep'
                   ? <div className="menu-sep" key={i} />
                   : (
-                    <button className="menu-item" key={i} disabled={it.disabled} onClick={() => run(it)}>
-                      <span>{it.label}</span>{it.accel && <span className="accel">{it.accel}</span>}
+                    <button className={`menu-item${it.checked !== undefined ? ' toggle' : ''}${it.checked ? ' on' : ''}`} key={i} disabled={it.disabled} onClick={() => run(it)}>
+                      <span>{it.label}</span>
+                      {it.checked !== undefined
+                        ? <span className="mi-sw" aria-hidden />
+                        : it.accel && <span className="accel">{it.accel}</span>}
                     </button>
                   ))}
               </div>

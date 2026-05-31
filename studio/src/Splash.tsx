@@ -16,8 +16,7 @@ export function Splash({ recent, onNew, onOpen, onOpenRecent }: {
         <span className="crop bl" /><span className="crop br" />
 
         <div className="splash-hero">
-          <img className="splash-mark" src="/logo.svg" alt="Plumb" />
-          <div className="splash-word">Plumb</div>
+          <div className="splash-word wordmark">Plumb</div>
           <div className="splash-tag">spatial validation for physical worlds</div>
         </div>
 

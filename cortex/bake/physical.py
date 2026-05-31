@@ -35,10 +35,50 @@ from contracts import Physical
 # Material → density table (kg/m³). "default" is the catch-all for unknown or
 # unassigned parts so the bake always produces *some* honest mass.
 MATERIAL_DENSITY: dict[str, float] = {
-    "bronze": 8800.0,
-    "stone": 2500.0,
-    "glass": 2500.0,
-    "wood": 700.0,
+    # metals
+    "aluminum": 2700.0, "aluminum_alloy": 2810.0, "steel": 7850.0, "stainless_steel": 8000.0,
+    "cast_iron": 7200.0, "iron": 7870.0, "wrought_iron": 7750.0, "copper": 8960.0, "brass": 8500.0,
+    "bronze": 8800.0, "gold": 19300.0, "silver": 10490.0, "lead": 11340.0, "titanium": 4500.0,
+    "zinc": 7140.0, "nickel": 8900.0, "tin": 7280.0, "magnesium": 1740.0, "tungsten": 19250.0,
+    "chromium": 7190.0, "pewter": 7300.0, "platinum": 21450.0, "rusted_steel": 7600.0,
+    # wood
+    "wood": 700.0, "oak": 750.0, "pine": 500.0, "balsa": 160.0, "bamboo": 400.0, "plywood": 600.0,
+    "mahogany": 700.0, "birch": 670.0, "walnut": 650.0, "cedar": 380.0, "teak": 650.0, "maple": 700.0,
+    "ash": 680.0, "beech": 720.0, "spruce": 450.0, "mdf": 750.0, "cork": 240.0, "driftwood": 500.0,
+    "ebony": 1100.0, "rosewood": 850.0,
+    # stone
+    "stone": 2500.0, "granite": 2700.0, "marble": 2700.0, "limestone": 2600.0, "sandstone": 2300.0,
+    "slate": 2800.0, "basalt": 3000.0, "quartz": 2650.0, "obsidian": 2600.0, "flint": 2600.0,
+    "gneiss": 2700.0, "pumice": 640.0,
+    # masonry
+    "concrete": 2400.0, "brick": 1900.0, "plaster": 1200.0, "mortar": 2200.0, "terracotta": 2000.0,
+    "adobe": 1600.0, "cinderblock": 1350.0, "stucco": 1850.0, "asphalt": 2240.0,
+    # glass / ceramic
+    "glass": 2500.0, "tempered_glass": 2500.0, "porcelain": 2400.0, "ceramic": 2300.0, "clay": 1900.0,
+    "stoneware": 2300.0, "earthenware": 2100.0, "enamel": 2400.0,
+    # plastic
+    "plastic": 1100.0, "abs": 1050.0, "pvc": 1400.0, "nylon": 1150.0, "polycarbonate": 1200.0,
+    "acrylic": 1180.0, "polyethylene": 950.0, "polypropylene": 905.0, "polystyrene": 1040.0,
+    "resin": 1200.0, "epoxy": 1150.0, "bakelite": 1300.0, "melamine": 1500.0, "teflon": 2200.0,
+    # rubber / foam
+    "rubber": 1100.0, "silicone": 1100.0, "neoprene": 1230.0, "foam": 50.0, "eva_foam": 90.0,
+    "latex": 920.0, "vinyl": 1300.0, "styrofoam": 30.0,
+    # fabric
+    "fabric": 300.0, "cotton": 400.0, "wool": 350.0, "leather": 900.0, "felt": 300.0, "canvas": 450.0,
+    "denim": 480.0, "silk": 350.0, "burlap": 320.0, "velvet": 400.0, "suede": 850.0,
+    # organic
+    "paper": 800.0, "cardboard": 700.0, "bone": 1800.0, "ivory": 1850.0, "wax": 900.0, "charcoal": 400.0,
+    "horn": 1300.0, "shell": 2700.0, "coral": 1500.0, "chitin": 1300.0, "hide": 950.0,
+    # composite
+    "carbon_fiber": 1600.0, "fiberglass": 1900.0, "kevlar": 1440.0, "particleboard": 700.0,
+    "laminate": 1350.0, "gypsum": 800.0,
+    # earth
+    "sand": 1600.0, "gravel": 1700.0, "dirt": 1300.0, "soil": 1300.0, "mud": 1800.0, "peat": 400.0,
+    # liquid / ice
+    "water": 1000.0, "ice": 917.0, "snow": 250.0, "oil": 900.0,
+    # precious / gem
+    "diamond": 3500.0, "ruby": 4000.0, "sapphire": 4000.0, "emerald": 2760.0, "amber": 1060.0,
+    "jade": 3300.0, "amethyst": 2650.0,
     "default": 1000.0,
 }
 
