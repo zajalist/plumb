@@ -86,7 +86,7 @@ export function Stage({ assets, settings, setSettings, onAddFiles, onEnter, ueAv
             <span className="mono sq-count">{ready}/{assets.length} ready</span>
           </div>
           {assets.length === 0 ? (
-            <div className="sq-empty">No files yet — drop meshes to begin.</div>
+            <div className="sq-empty">No files yet. Drop meshes to begin.</div>
           ) : (
             <div className="sq-list">
               {assets.map((a) => (
@@ -112,7 +112,7 @@ export function Stage({ assets, settings, setSettings, onAddFiles, onEnter, ueAv
 
       <div className="stage-foot">
         <button className="stage-enter" onClick={onEnter} disabled={active}>
-          {active ? 'Baking…' : ready > 0 ? `Enter editor — ${ready} asset${ready > 1 ? 's' : ''} →` : 'Enter editor →'}
+          {active ? 'Baking…' : ready > 0 ? `Enter editor · ${ready} asset${ready > 1 ? 's' : ''} →` : 'Enter editor →'}
         </button>
       </div>
     </div>

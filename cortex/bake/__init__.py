@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from contracts import PAP, MaterialPart, Provenance, Semantics
 from cortex.bake.geometry import bake_geometry_parts
+from cortex.bake.groups import bake_material_groups
 from cortex.bake.materials import describe_parts, guess_materials
 from cortex.bake.physical import bake_physical
 
@@ -55,6 +56,24 @@ def _bake(
     guessed) while a low-confidence material *guess* per part seeds the confirm
     loop via ``semantics.materials``. Returns the PAP plus per-part mask detail.
     """
+    # Multi-material model (gltf/glb/obj with several materials) → the masks are the
+    # material groups (trunk/branch/leaves), baked composition-aware. This also skips
+    # CoACD where it would time out. Single-material meshes fall through to CoACD.
+    if not part_materials:
+        grouped = bake_material_groups(mesh_path)
+        if grouped is not None:
+            geometry, physical, masks = grouped
+            materials = [MaterialPart(part=m["id"], mat=m["material"], conf=m["conf"]) for m in masks]
+            pap = PAP(
+                asset_id=asset_id,
+                profile=profile,
+                geometry=geometry,
+                semantics=Semantics(materials=materials),
+                physical=physical,
+                provenance=Provenance(auto=True, edited_fields=[], locked=[]),
+            )
+            return pap, masks
+
     geometry, parts, _flag = bake_geometry_parts(mesh_path)
 
     authored = _normalize_authored(part_materials)

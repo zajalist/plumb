@@ -5,6 +5,7 @@ export type Asset = {
   id: string
   name: string
   file?: File            // absent for assets declared by an opened .wdf
+  extras?: File[]        // sidecars (.bin/textures) so the viewport can render a .gltf
   pap?: PAP
   status: 'queued' | 'converting' | 'baking' | 'ok' | 'error' | 'declared'
   error?: string

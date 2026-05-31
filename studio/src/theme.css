@@ -58,7 +58,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .mbtn svg{width:15px;height:15px;color:var(--ink3)}
 .mbtn:hover svg{color:var(--sage)}
 .proj{margin-left:auto;display:flex;align-items:center;gap:9px;color:var(--ink3);font-size:12px}
-.proj .dot{width:6px;height:6px;border-radius:1px;background:var(--sage)}
+.proj .dot{display:none}
 
 /* gate stack — glass segmented strip */
 .gates{display:flex;align-items:stretch;height:46px;
