@@ -44,13 +44,23 @@ function buildParts(group: THREE.Group, partList: Part[]): THREE.MeshStandardMat
 /** Dark device stage: renders the baked masks (per-part convex hulls, each in its
  *  mask colour) + the verdict viz (CoM, plumb line, support footprint). Canonical
  *  is Z-up; the world group is tilted so Z reads up. */
-export function Viewport({ name, pap, pos, verdict }: {
+export function Viewport({ name, pap, pos, verdict, status }: {
   name: string; pap: PAP | null; pos: number[]; verdict: Verdict | null
+  status?: 'queued' | 'converting' | 'baking' | 'ok' | 'error' | 'declared'
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const refs = useRef<Refs | null>(null)
   const [view, setView] = useState<'masks' | 'solid'>('masks')
   const hasParts = !!pap?.parts?.some((p) => p.verts?.length)
+
+  const emptyMsg = hasParts ? null
+    : status === 'baking' ? 'decomposing…'
+    : status === 'converting' ? 'converting via Unreal…'
+    : status === 'queued' ? 'queued…'
+    : status === 'error' ? 'bake failed'
+    : status === 'declared' ? 'declared asset — no baked geometry'
+    : pap ? 'no masks'
+    : 'no asset selected'
 
   // ---- one-time scene setup ----
   useEffect(() => {
@@ -163,7 +173,7 @@ export function Viewport({ name, pap, pos, verdict }: {
       <div className="stage">
         <div className="crop tl" /><div className="crop tr" /><div className="crop bl" /><div className="crop br" />
         <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
-        {!hasParts && <div className="emptyvp">{pap ? 'declared asset — no geometry' : 'no asset selected'}</div>}
+        {emptyMsg && <div className="emptyvp">{emptyMsg}</div>}
         <div className="axis">Z↑ X→<br />m · kg</div>
       </div>
     </section>
