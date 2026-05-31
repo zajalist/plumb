@@ -19,12 +19,17 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
+  cm,
   evaluateGraph,
+  type GateStatus,
+  type NodeKind,
+  type NodeOp,
   type NodeResult,
   type PlumbData,
   type SceneState,
 } from '../lib/engine'
-import { DEF_BY_OP, nextId, seedGraph, specToNode } from '../lib/catalog'
+import { DEF_BY_OP, DEFAULT_OP_BY_KIND, nextId, seedGraph, specToNode } from '../lib/catalog'
+import type { GateName, Verdict } from '../api'
 import { STATUS_COLOR, STATUS_LABEL, PORT_COLOR } from '../lib/theme'
 import { canConnect, connect, type GetNodeData } from '../lib/connection'
 import { useUndoRedo } from '../lib/useUndoRedo'
@@ -148,12 +153,29 @@ const nodeTypes = {
 
 const SEED = seedGraph()
 
+/** A baked asset offered to Object nodes (the P1 sync list) + its baked facts (P2). */
+export type ObjectOption = { id: string; label: string; sub?: string; mass?: number; com?: number[] }
+
+// P4: which backend gate drives each law / measure op, so a real Verdict lights
+// up the graph (spec §11 — the node editor as the "intent conscience").
+const LAW_GATE: Partial<Record<NodeOp, GateName>> = {
+  stable: 'stability', noClip: 'collision', walkwayClear: 'reach',
+  facing: 'constraints', doorClear: 'constraints',
+}
+const MEASURE_GATE: Partial<Record<NodeOp, GateName>> = {
+  comOverFootprint: 'stability', clearance: 'collision', pathWidth: 'reach',
+}
+
 export default function ConstraintGraph({
   scene,
   setBronzeX,
+  objects = [],
+  verdict = null,
 }: {
   scene: SceneState
   setBronzeX: (x: number) => void
+  objects?: ObjectOption[]
+  verdict?: Verdict | null
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(SEED.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(SEED.edges)
@@ -162,11 +184,40 @@ export default function ConstraintGraph({
   const { screenToFlowPosition, getNode } = useReactFlow()
   const { takeSnapshot, undo, redo } = useUndoRedo()
 
-  // Live recompute whenever structure, wiring, or the scene knob changes.
-  const results = useMemo(
-    () => evaluateGraph(nodes, edges, scene, DEF_BY_OP),
-    [nodes, edges, scene],
-  )
+  // Live recompute whenever structure, wiring, or the scene knob changes. When a
+  // real backend Verdict is present, overlay its gate truth onto the matching
+  // measure/law/verdict nodes (P4) — otherwise engine.ts drives the demo knob.
+  const results = useMemo(() => {
+    const base = evaluateGraph(nodes, edges, scene, DEF_BY_OP)
+    if (!verdict) return base
+    const gateBy = new Map(verdict.gates.map((g) => [g.gate, g]))
+    for (const n of nodes) {
+      const d = n.data as PlumbData
+      if (d.kind === 'measure') {
+        const g = MEASURE_GATE[d.op] && gateBy.get(MEASURE_GATE[d.op]!)
+        if (g && g.value_m != null) base.set(n.id, { status: 'idle', headline: cm(g.value_m) })
+      } else if (d.kind === 'law') {
+        const g = LAW_GATE[d.op] && gateBy.get(LAW_GATE[d.op]!)
+        if (g) {
+          const status: GateStatus =
+            g.ok === false ? (d.hard === false ? 'soft' : 'fail') : g.ok === true ? 'pass' : 'idle'
+          base.set(n.id, {
+            status,
+            headline: g.value_m != null ? cm(g.value_m) : undefined,
+            detail: g.detail ?? undefined,
+          })
+        }
+      } else if (d.kind === 'verdict') {
+        base.set(
+          n.id,
+          verdict.ok
+            ? { status: 'pass', detail: 'all gates pass · commit' }
+            : { status: 'fail', detail: `blocked at ${verdict.stopped_at ?? '—'}` },
+        )
+      }
+    }
+    return base
+  }, [nodes, edges, scene, verdict])
 
   // Track the whole node selection (box-select can pick many); a wire selection
   // is mutually exclusive with nodes — the inspector shows one or the other.
@@ -243,7 +294,10 @@ export default function ConstraintGraph({
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
-      const op = e.dataTransfer.getData('application/plumb-node')
+      // New (P0): an abstract node carries its kind → start at that kind's default
+      // op. Legacy: a concrete op was dragged. Either resolves to a NodeDef.
+      const kind = e.dataTransfer.getData('application/plumb-node-kind') as NodeKind | ''
+      const op = kind ? DEFAULT_OP_BY_KIND[kind] : e.dataTransfer.getData('application/plumb-node')
       const spec = DEF_BY_OP[op]
       if (!spec) return
       takeSnapshot()
@@ -251,6 +305,64 @@ export default function ConstraintGraph({
       setNodes((nds) => nds.concat(specToNode(spec, nextId(op), position)))
     },
     [screenToFlowPosition, setNodes, takeSnapshot],
+  )
+
+  // Change a node's concrete op (the inspector Type dropdown). Re-derives the
+  // node's metadata from the registry and prunes any wire whose typed ports no
+  // longer match (e.g. a measure switched scalar→bool drops its law edge).
+  const onChangeOp = useCallback(
+    (id: string, op: NodeOp) => {
+      const def = DEF_BY_OP[op]
+      if (!def) return
+      takeSnapshot()
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === id
+            ? {
+                ...n,
+                data: {
+                  ...(n.data as PlumbData),
+                  op: def.op, label: def.label, sub: def.sub,
+                  accepts: def.accepts, provides: def.provides,
+                  hard: def.hard, control: def.control,
+                },
+              }
+            : n,
+        ),
+      )
+      setEdges((eds) =>
+        eds.filter((e) => {
+          if (e.source !== id && e.target !== id) return true
+          const provides = e.source === id ? def.provides : getData(e.source)?.provides
+          const accepts = e.target === id ? def.accepts : getData(e.target)?.accepts
+          return !!provides && !!accepts && accepts.includes(provides)
+        }),
+      )
+    },
+    [setNodes, setEdges, getData, takeSnapshot],
+  )
+
+  // Bind an Object node to a real imported/baked asset (the P1 sync). The node
+  // becomes a generic `object` carrying the asset's id + baked label/facts.
+  const onBindAsset = useCallback(
+    (id: string, assetId: string, label: string, sub?: string) => {
+      takeSnapshot()
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === id
+            ? {
+                ...n,
+                data: {
+                  ...(n.data as PlumbData),
+                  op: 'object', assetId, label, sub,
+                  provides: 'object', accepts: undefined, hard: undefined, control: undefined,
+                },
+              }
+            : n,
+        ),
+      )
+    },
+    [setNodes, takeSnapshot],
   )
 
   // Delete a set of nodes (one or many) plus any wire touching them.
@@ -345,6 +457,9 @@ export default function ConstraintGraph({
           incoming={incoming}
           bronzeX={scene.bronzeX}
           setBronzeX={setBronzeX}
+          objects={objects}
+          onChangeOp={onChangeOp}
+          onBindAsset={onBindAsset}
           onDelete={onDelete}
           onDeleteEdge={onDeleteEdge}
           onDeleteMany={onDeleteNodes}
