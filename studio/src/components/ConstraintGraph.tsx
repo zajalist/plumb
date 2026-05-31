@@ -19,7 +19,9 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
+  cm,
   evaluateGraph,
+  type GateStatus,
   type NodeKind,
   type NodeOp,
   type NodeResult,
@@ -27,6 +29,7 @@ import {
   type SceneState,
 } from '../lib/engine'
 import { DEF_BY_OP, DEFAULT_OP_BY_KIND, nextId, seedGraph, specToNode } from '../lib/catalog'
+import type { GateName, Verdict } from '../api'
 import { STATUS_COLOR, STATUS_LABEL, PORT_COLOR } from '../lib/theme'
 import { canConnect, connect, type GetNodeData } from '../lib/connection'
 import { useUndoRedo } from '../lib/useUndoRedo'
@@ -153,14 +156,26 @@ const SEED = seedGraph()
 /** A baked asset offered to Object nodes (the P1 sync list) + its baked facts (P2). */
 export type ObjectOption = { id: string; label: string; sub?: string; mass?: number; com?: number[] }
 
+// P4: which backend gate drives each law / measure op, so a real Verdict lights
+// up the graph (spec §11 — the node editor as the "intent conscience").
+const LAW_GATE: Partial<Record<NodeOp, GateName>> = {
+  stable: 'stability', noClip: 'collision', walkwayClear: 'reach',
+  facing: 'constraints', doorClear: 'constraints',
+}
+const MEASURE_GATE: Partial<Record<NodeOp, GateName>> = {
+  comOverFootprint: 'stability', clearance: 'collision', pathWidth: 'reach',
+}
+
 export default function ConstraintGraph({
   scene,
   setBronzeX,
   objects = [],
+  verdict = null,
 }: {
   scene: SceneState
   setBronzeX: (x: number) => void
   objects?: ObjectOption[]
+  verdict?: Verdict | null
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(SEED.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(SEED.edges)
@@ -169,11 +184,40 @@ export default function ConstraintGraph({
   const { screenToFlowPosition, getNode } = useReactFlow()
   const { takeSnapshot, undo, redo } = useUndoRedo()
 
-  // Live recompute whenever structure, wiring, or the scene knob changes.
-  const results = useMemo(
-    () => evaluateGraph(nodes, edges, scene, DEF_BY_OP),
-    [nodes, edges, scene],
-  )
+  // Live recompute whenever structure, wiring, or the scene knob changes. When a
+  // real backend Verdict is present, overlay its gate truth onto the matching
+  // measure/law/verdict nodes (P4) — otherwise engine.ts drives the demo knob.
+  const results = useMemo(() => {
+    const base = evaluateGraph(nodes, edges, scene, DEF_BY_OP)
+    if (!verdict) return base
+    const gateBy = new Map(verdict.gates.map((g) => [g.gate, g]))
+    for (const n of nodes) {
+      const d = n.data as PlumbData
+      if (d.kind === 'measure') {
+        const g = MEASURE_GATE[d.op] && gateBy.get(MEASURE_GATE[d.op]!)
+        if (g && g.value_m != null) base.set(n.id, { status: 'idle', headline: cm(g.value_m) })
+      } else if (d.kind === 'law') {
+        const g = LAW_GATE[d.op] && gateBy.get(LAW_GATE[d.op]!)
+        if (g) {
+          const status: GateStatus =
+            g.ok === false ? (d.hard === false ? 'soft' : 'fail') : g.ok === true ? 'pass' : 'idle'
+          base.set(n.id, {
+            status,
+            headline: g.value_m != null ? cm(g.value_m) : undefined,
+            detail: g.detail ?? undefined,
+          })
+        }
+      } else if (d.kind === 'verdict') {
+        base.set(
+          n.id,
+          verdict.ok
+            ? { status: 'pass', detail: 'all gates pass · commit' }
+            : { status: 'fail', detail: `blocked at ${verdict.stopped_at ?? '—'}` },
+        )
+      }
+    }
+    return base
+  }, [nodes, edges, scene, verdict])
 
   // Track the whole node selection (box-select can pick many); a wire selection
   // is mutually exclusive with nodes — the inspector shows one or the other.

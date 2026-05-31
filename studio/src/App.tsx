@@ -286,7 +286,7 @@ export default function App() {
         <div className="ne">
           <ReactFlowProvider>
             <Palette />
-            <ConstraintGraph scene={scene} setBronzeX={setBronzeX} objects={objects} />
+            <ConstraintGraph scene={scene} setBronzeX={setBronzeX} objects={objects} verdict={verdict} />
           </ReactFlowProvider>
         </div>
       </div>
