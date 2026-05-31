@@ -10,7 +10,7 @@ body,
   height: 100%;
 }
 body {
-  font-family: Inter, system-ui, sans-serif;
-  background: #14181d;
-  color: #e6e9ed;
+  font-family: 'Segoe UI', 'Segoe UI Variable', system-ui, sans-serif;
+  background: #0e1012;
+  color: #e7eaec;
 }

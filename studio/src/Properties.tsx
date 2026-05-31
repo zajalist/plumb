@@ -5,7 +5,7 @@ import type { PAP, WdfAsset } from './api'
 const SWATCH: Record<string, string> = {
   bronze: '#7b5a2a', stone: '#6b6a63', glass: '#5b6b6b', wood: '#6e5a36', default: '#5a5750',
 }
-const MASK_PALETTE = ['#8E9A60', '#C2A24E', '#7E8A9A', '#C16A4A', '#6E8B7A', '#A0879A', '#B58A5A', '#7C8AA0']
+const MASK_PALETTE = ['#34C0AD', '#D9A84C', '#6E8BA0', '#E0694F', '#5FA38C', '#A088B0', '#C2925A', '#7C8AA0']
 const MATERIALS = ['default', 'bronze', 'stone', 'glass', 'wood']
 
 export function Properties({ pap, footer, onConfirm, busy, declared }: {
@@ -101,9 +101,24 @@ export function Properties({ pap, footer, onConfirm, busy, declared }: {
         </div>
         <div className="psec">
           <div className="label" style={{ marginBottom: 4 }}>Physics</div>
-          <div className="prop"><span className="k"><Icon name="mass" />mass</span><span className="v">{pap.physical.mass_kg.toFixed(1)} kg</span></div>
-          <div className="prop"><span className="k"><Icon name="com" />centre of mass</span><span className="v">{pap.physical.com.map(f3).join(', ')}</span></div>
-          <div className="prop"><span className="k">volume</span><span className="v muted">{(pap.geometry.volume_m3 * 1000).toFixed(1)} L</span></div>
+          <div className="prop">
+            <span className="k"><Icon name="mass" />mass</span>
+            <span className="field">
+              <span className="fill" style={{ width: `${Math.max(4, Math.min(100, pap.physical.mass_kg))}%` }} />
+              <span className="fv">{pap.physical.mass_kg.toFixed(1)}</span><span className="fu">kg</span>
+            </span>
+          </div>
+          <div className="prop">
+            <span className="k"><Icon name="com" />centre of mass</span>
+            <span className="vec">{pap.physical.com.map((c, i) => <span className="cell" key={i}>{f3(c)}</span>)}</span>
+          </div>
+          <div className="prop">
+            <span className="k">volume</span>
+            <span className="field">
+              <span className="fill" style={{ width: `${Math.max(4, Math.min(100, pap.geometry.volume_m3 * 1000 * 2))}%` }} />
+              <span className="fv">{(pap.geometry.volume_m3 * 1000).toFixed(1)}</span><span className="fu">L</span>
+            </span>
+          </div>
         </div>
         <div className="psec" style={{ borderBottom: 'none' }}>
           <div className="label">

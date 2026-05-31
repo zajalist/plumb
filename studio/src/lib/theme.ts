@@ -7,13 +7,13 @@
  */
 import type { GateStatus, PortType } from './engine'
 
-// Austere PLUMB palette (matches theme.css gate semantics): sage/terracotta/ochre,
-// muted — the only saturated colors in the studio. No neon.
+// Graphite-glass PLUMB palette (matches theme.css gate semantics): teal/terracotta/
+// amber — the only saturated colors in the studio. No neon.
 export const STATUS_COLOR: Record<GateStatus, string> = {
-  pass: '#8E9A60', // sage
-  fail: '#C16A4A', // terracotta
-  soft: '#C2A24E', // ochre
-  idle: '#56544A', // ink4
+  pass: '#34C0AD', // teal
+  fail: '#E0694F', // terracotta
+  soft: '#D9A84C', // amber
+  idle: '#474E54', // ink4
 }
 
 export const STATUS_LABEL: Record<GateStatus, string> = {
@@ -23,12 +23,12 @@ export const STATUS_LABEL: Record<GateStatus, string> = {
   idle: 'IDLE',
 }
 
-// Typed-port colours — desaturated, austere; distinct but never loud (spec §9.2).
+// Typed-port colours — desaturated, cool; distinct but never loud (spec §9.2).
 export const PORT_COLOR: Record<PortType, string> = {
-  object: '#8E9A60', // sage (the noun)
-  scalar: '#7E8A9A', // muted slate (a number)
-  bool: '#A0879A', // muted mauve (a gate)
-  verdict: '#C2A24E', // ochre (the commit)
+  object: '#34C0AD', // teal (the noun)
+  scalar: '#6E8BA0', // steel (a number)
+  bool: '#A088B0', // muted violet (a gate)
+  verdict: '#D9A84C', // amber (the commit)
 }
 
 export const KIND_LABEL: Record<string, string> = {
