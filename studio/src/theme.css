@@ -61,7 +61,11 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .pane>header .t{display:flex;align-items:center;gap:9px}
 .pane>header .t svg{width:14px;height:14px;color:var(--ink3)}
 .pane>header .t span{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);font-weight:500}
-.pane .body{flex:1;overflow:auto;min-height:0}
+.pane .body{flex:1;overflow:auto;min-height:0;scrollbar-color:var(--line2) var(--inset);scrollbar-width:thin}
+.pane .body::-webkit-scrollbar{width:10px}
+.pane .body::-webkit-scrollbar-track{background:var(--inset)}
+.pane .body::-webkit-scrollbar-thumb{background:var(--line2);border-radius:8px;border:2px solid var(--inset)}
+.pane .body::-webkit-scrollbar-thumb:hover{background:var(--sage)}
 
 /* assets */
 .assets{width:248px;flex:none}
@@ -126,6 +130,16 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .mask-bar span{display:block;height:100%;border-radius:2px;opacity:.85}
 
 /* node editor */
+.resize-handle{
+  height:6px;cursor:row-resize;background:var(--surface);
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line)
+}
+.resize-handle::after{
+  content:'';display:block;width:34px;height:3px;border-radius:3px;
+  margin:1px auto;background:var(--line2)
+}
+.resize-handle:hover{background:var(--surface2)}
+.resize-handle:hover::after{background:var(--sage)}
 .nodeeditor{height:300px;flex:none;border-top:1px solid var(--line);display:flex;flex-direction:column;background:var(--bg)}
 .nodeeditor>header{display:flex;align-items:center;gap:10px;height:34px;padding:0 15px;border-bottom:1px solid var(--line)}
 .nodeeditor>header svg{width:14px;height:14px;color:var(--ink3)}

@@ -8,7 +8,17 @@
 .palette {
   width: 168px; flex: none; overflow-y: auto;
   border-right: 1px solid var(--line); background: var(--bg); padding: 10px;
+  scrollbar-color: var(--line2) var(--inset);
+  scrollbar-width: thin;
 }
+.palette::-webkit-scrollbar { width: 10px; }
+.palette::-webkit-scrollbar-track { background: var(--inset); }
+.palette::-webkit-scrollbar-thumb {
+  background: var(--line2);
+  border-radius: 8px;
+  border: 2px solid var(--inset);
+}
+.palette::-webkit-scrollbar-thumb:hover { background: var(--sage); }
 .palette-head { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); font-weight: 500; }
 .palette-hint { font-size: 10px; color: var(--ink4); margin: 2px 0 10px; }
 .palette-cat { margin-bottom: 12px; }
@@ -35,6 +45,13 @@
 .canvas { flex: 1; position: relative; min-width: 0; }
 .react-flow { background: transparent; }
 .react-flow__edge-path { stroke: var(--line2); stroke-width: 1.4; }
+/* box-select: sage, matching the studio palette (override RF's default blue) */
+.react-flow__selection,
+.react-flow__nodesselection-rect {
+  background: rgba(142, 154, 96, 0.07);
+  border: 1px dashed var(--sage);
+}
+.react-flow__node.selected { outline: 1px solid var(--sage); outline-offset: 3px; border-radius: 8px; }
 .react-flow__handle { width: 8px; height: 8px; border: 1px solid var(--bg); }
 .react-flow__handle:hover { filter: brightness(1.25); }
 .react-flow__controls { box-shadow: none; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
