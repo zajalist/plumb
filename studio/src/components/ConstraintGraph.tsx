@@ -150,12 +150,17 @@ const nodeTypes = {
 
 const SEED = seedGraph()
 
+/** A baked asset offered to Object nodes (the P1 sync list). */
+export type ObjectOption = { id: string; label: string; sub?: string }
+
 export default function ConstraintGraph({
   scene,
   setBronzeX,
+  objects = [],
 }: {
   scene: SceneState
   setBronzeX: (x: number) => void
+  objects?: ObjectOption[]
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(SEED.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(SEED.edges)
@@ -293,6 +298,29 @@ export default function ConstraintGraph({
     [setNodes, setEdges, getData, takeSnapshot],
   )
 
+  // Bind an Object node to a real imported/baked asset (the P1 sync). The node
+  // becomes a generic `object` carrying the asset's id + baked label/facts.
+  const onBindAsset = useCallback(
+    (id: string, assetId: string, label: string, sub?: string) => {
+      takeSnapshot()
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === id
+            ? {
+                ...n,
+                data: {
+                  ...(n.data as PlumbData),
+                  op: 'object', assetId, label, sub,
+                  provides: 'object', accepts: undefined, hard: undefined, control: undefined,
+                },
+              }
+            : n,
+        ),
+      )
+    },
+    [setNodes, takeSnapshot],
+  )
+
   // Delete a set of nodes (one or many) plus any wire touching them.
   const onDeleteNodes = useCallback(
     (ids: string[]) => {
@@ -385,7 +413,9 @@ export default function ConstraintGraph({
           incoming={incoming}
           bronzeX={scene.bronzeX}
           setBronzeX={setBronzeX}
+          objects={objects}
           onChangeOp={onChangeOp}
+          onBindAsset={onBindAsset}
           onDelete={onDelete}
           onDeleteEdge={onDeleteEdge}
           onDeleteMany={onDeleteNodes}

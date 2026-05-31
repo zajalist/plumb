@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { IconDefs, Icon } from './Icons'
 import { Brand } from './Brand'
 import { AssetsPanel, type Asset } from './AssetsPanel'
@@ -60,6 +60,20 @@ export default function App() {
   // node-editor scene (Fara's editable constraint graph; its own live "knob")
   const [scene, setScene] = useState<SceneState>(INITIAL_SCENE)
   const setBronzeX = useCallback((x: number) => setScene((s) => ({ ...s, bronzeX: x })), [])
+
+  // Baked assets, as the node editor's selectable Objects (P1 sync). Import &
+  // bake → the asset appears in every Object node's dropdown (SYNC.md).
+  const objects = useMemo(
+    () =>
+      assets
+        .filter((a) => a.status === 'ok' && a.pap)
+        .map((a) => ({
+          id: a.pap!.asset_id,
+          label: a.name,
+          sub: `${a.pap!.semantics.cls} · ${a.pap!.physical.mass_kg.toFixed(1)}kg`,
+        })),
+    [assets],
+  )
 
   const startResize = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
@@ -255,7 +269,7 @@ export default function App() {
         <div className="ne">
           <ReactFlowProvider>
             <Palette />
-            <ConstraintGraph scene={scene} setBronzeX={setBronzeX} />
+            <ConstraintGraph scene={scene} setBronzeX={setBronzeX} objects={objects} />
           </ReactFlowProvider>
         </div>
       </div>

@@ -37,7 +37,10 @@ export type NodeDef = {
 
 // ── Every node type, defined once ────────────────────────────────────────────
 export const NODE_DEFS: NodeDef[] = [
-  // Assets (nouns) — the bronze figure's knob is the scene's live value.
+  // Assets (nouns). The generic `object` is the abstract default; binding it to a
+  // real imported asset is the P1 sync. The named demo assets keep the Gallery
+  // beat (bronze_figure's knob is the scene's live value).
+  { op: 'object', kind: 'asset', label: 'object', sub: 'unbound', provides: 'object', evaluate: () => ({ value: 0 }) },
   { op: 'bronze_figure', kind: 'asset', label: 'bronze_figure_03', sub: 'top-heavy', provides: 'object', control: 'bronzeX', evaluate: ({ scene }) => ({ value: scene.bronzeX }) },
   { op: 'oak_door', kind: 'asset', label: 'oak_door', sub: 'articulated · swept', provides: 'object', evaluate: () => ({ value: 0 }) },
   { op: 'glass_vase', kind: 'asset', label: 'glass_vase', sub: 'fragile · hollow', provides: 'object', evaluate: () => ({ value: 0 }) },

@@ -111,7 +111,9 @@ export default function Inspector({
   incoming,
   bronzeX,
   setBronzeX,
+  objects = [],
   onChangeOp,
+  onBindAsset,
   onDelete,
   onDeleteEdge,
   onDeleteMany,
@@ -123,7 +125,9 @@ export default function Inspector({
   incoming: { label: string; type?: PortType }[]
   bronzeX: number
   setBronzeX: (x: number) => void
+  objects?: { id: string; label: string; sub?: string }[]
   onChangeOp: (id: string, op: NodeOp) => void
+  onBindAsset: (id: string, assetId: string, label: string, sub?: string) => void
   onDelete: (id: string) => void
   onDeleteEdge: (id: string) => void
   onDeleteMany: (ids: string[]) => void
@@ -149,19 +153,54 @@ export default function Inspector({
       <div className="inspector-title">{d.label}</div>
       {d.sub && <div className="inspector-sub">{d.sub}</div>}
 
-      {OPS_BY_KIND[d.kind] && OPS_BY_KIND[d.kind].length > 1 && (
+      {d.kind === 'asset' ? (
         <div className="inspector-section">
-          <div className="inspector-h">Type</div>
+          <div className="inspector-h">Object</div>
           <select
             className="inspector-select"
-            value={d.op}
-            onChange={(e) => onChangeOp(node.id, e.target.value as NodeOp)}
+            value={d.assetId ? `asset:${d.assetId}` : `op:${d.op}`}
+            onChange={(e) => {
+              const v = e.target.value
+              if (v.startsWith('asset:')) {
+                const o = objects.find((x) => x.id === v.slice(6))
+                if (o) onBindAsset(node.id, o.id, o.label, o.sub)
+              } else {
+                onChangeOp(node.id, v.slice(3) as NodeOp)
+              }
+            }}
           >
-            {OPS_BY_KIND[d.kind].map((o) => (
-              <option key={o.op} value={o.op}>{o.label}</option>
-            ))}
+            {objects.length > 0 && (
+              <optgroup label="Imported assets">
+                {objects.map((o) => (
+                  <option key={o.id} value={`asset:${o.id}`}>{o.label}</option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label="Demo assets">
+              {OPS_BY_KIND.asset.map((o) => (
+                <option key={o.op} value={`op:${o.op}`}>{o.label}</option>
+              ))}
+            </optgroup>
           </select>
+          {objects.length === 0 && (
+            <div className="inspector-detail">Import &amp; bake a mesh to bind a real object.</div>
+          )}
         </div>
+      ) : (
+        OPS_BY_KIND[d.kind] && OPS_BY_KIND[d.kind].length > 1 && (
+          <div className="inspector-section">
+            <div className="inspector-h">Type</div>
+            <select
+              className="inspector-select"
+              value={d.op}
+              onChange={(e) => onChangeOp(node.id, e.target.value as NodeOp)}
+            >
+              {OPS_BY_KIND[d.kind].map((o) => (
+                <option key={o.op} value={o.op}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        )
       )}
 
       <div className="inspector-section">
