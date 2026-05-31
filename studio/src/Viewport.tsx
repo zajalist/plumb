@@ -21,7 +21,8 @@ type Refs = {
   grid: THREE.GridHelper
   meshHolder: THREE.Group     // placed assembly (moves with pos)
   content: THREE.Group        // the loaded model OR convex-part masks
-  inertiaGroup: THREE.Group   // inertia ellipsoid + axes + gravity (physics view)
+  forceGroup: THREE.Group     // gravity-arrow field (inertia/force view)
+  gradMat: THREE.ShaderMaterial   // vertical force-gradient mask for the inertia view
   groups: Group[]             // material groups (or parts) for the masks view
   urls: string[]              // blob URLs to revoke
   footprint: THREE.LineLoop
@@ -50,12 +51,14 @@ function buildGroups(root: THREE.Object3D): Group[] {
   return [...byMat.values()]
 }
 
-function applyView(groups: Group[], view: 'textured' | 'masks') {
+function applyView(groups: Group[], view: 'textured' | 'masks' | 'inertia', gradMat: THREE.Material) {
   for (const g of groups) {
     g.meshes.forEach((m, i) => {
       if (view === 'masks') {
         const mm = m.userData.maskMat ||= new THREE.MeshStandardMaterial({ color: g.color, roughness: 0.85, metalness: 0.04, flatShading: false })
         m.material = mm
+      } else if (view === 'inertia') {
+        m.material = gradMat
       } else {
         m.material = g.orig[i]
       }
@@ -139,66 +142,68 @@ function buildPartGroup(content: THREE.Group, parts: Part[]): Group[] {
   return groups
 }
 
-// Jacobi eigendecomposition of a symmetric 3×3 (for the inertia tensor). Returns
-// principal moments (values) + principal axes (vectors, as columns).
-function symEig3(M: number[][]): { values: number[]; vectors: number[][] } {
-  const a = M.map((row) => row.slice())
-  const v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-  for (let iter = 0; iter < 60; iter++) {
-    let p = 0, q = 1, max = Math.abs(a[0][1])
-    if (Math.abs(a[0][2]) > max) { max = Math.abs(a[0][2]); p = 0; q = 2 }
-    if (Math.abs(a[1][2]) > max) { max = Math.abs(a[1][2]); p = 1; q = 2 }
-    if (max < 1e-14) break
-    const phi = 0.5 * Math.atan2(2 * a[p][q], a[q][q] - a[p][p])
-    const c = Math.cos(phi), s = Math.sin(phi)
-    for (let k = 0; k < 3; k++) { const kp = a[k][p], kq = a[k][q]; a[k][p] = c * kp - s * kq; a[k][q] = s * kp + c * kq }
-    for (let k = 0; k < 3; k++) { const pk = a[p][k], qk = a[q][k]; a[p][k] = c * pk - s * qk; a[q][k] = s * pk + c * qk }
-    for (let k = 0; k < 3; k++) { const kp = v[k][p], kq = v[k][q]; v[k][p] = c * kp - s * kq; v[k][q] = s * kp + c * kq }
-  }
-  return {
-    values: [a[0][0], a[1][1], a[2][2]],
-    vectors: [[v[0][0], v[1][0], v[2][0]], [v[0][1], v[1][1], v[2][1]], [v[0][2], v[1][2], v[2][2]]],
+// A vertical gradient material (cool teal at the top → warm amber at the base) keyed
+// to world height — the "force gradient" mask shown in the inertia view. Lit by a
+// fixed direction so the model's shape still reads.
+function makeGradientMat(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { uMin: { value: 0 }, uMax: { value: 1 }, cBot: { value: new THREE.Color(0xd9a84c) }, cTop: { value: new THREE.Color(0x34c0ad) } },
+    vertexShader: `varying float vY; varying vec3 vN;
+      void main(){ vec4 wp = modelMatrix*vec4(position,1.0); vY = wp.y; vN = normalize(normalMatrix*normal);
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `uniform float uMin; uniform float uMax; uniform vec3 cBot; uniform vec3 cTop; varying float vY; varying vec3 vN;
+      void main(){ float t = clamp((vY-uMin)/max(uMax-uMin,1e-4),0.0,1.0); vec3 base = mix(cBot,cTop,t);
+      float d = 0.5 + 0.5*dot(vN, normalize(vec3(0.35,0.8,0.45))); gl_FragColor = vec4(base*(0.5+0.5*d),1.0); }`,
+    side: THREE.DoubleSide,
+  })
+}
+
+// One downward gravity arrow with a teal→amber gradient along its length.
+function gradientArrow(top: THREE.Vector3, length: number, radius: number): THREE.Group {
+  const g = new THREE.Group()
+  const cTop = new THREE.Color(0x34c0ad), cBot = new THREE.Color(0xd9a84c)
+  const sl = length * 0.74
+  const shaft = new THREE.CylinderGeometry(radius * 0.42, radius * 0.42, sl, 8)
+  const p = shaft.attributes.position, col = new Float32Array(p.count * 3)
+  for (let i = 0; i < p.count; i++) { const t = p.getY(i) / sl + 0.5; const c = cBot.clone().lerp(cTop, t); col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b }
+  shaft.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  const sm = new THREE.Mesh(shaft, new THREE.MeshBasicMaterial({ vertexColors: true }))
+  sm.position.copy(top).add(new THREE.Vector3(0, -sl / 2, 0)); g.add(sm)
+  const head = new THREE.Mesh(new THREE.ConeGeometry(radius, length * 0.28, 12), new THREE.MeshBasicMaterial({ color: cBot }))
+  head.rotation.x = Math.PI; head.position.copy(top).add(new THREE.Vector3(0, -(sl + length * 0.14), 0)); g.add(head)
+  return g
+}
+
+// A field of downward gravity arrows over the model's footprint (world space, Y-up),
+// sized to the model — the "inertia forces" pointing at gravity. Model-relative, so
+// there are no physics-unit blow-ups.
+function buildForceField(group: THREE.Group, box: THREE.Box3) {
+  while (group.children.length) { const c = group.children[0]; group.remove(c); c.traverse?.((o) => { const m = o as THREE.Mesh; m.geometry?.dispose?.() }) }
+  if (box.isEmpty()) return
+  const size = box.getSize(new THREE.Vector3())
+  const R = Math.max(size.x, size.y, size.z, 1e-3)
+  const top = box.max.y + R * 0.05
+  const len = size.y * 0.55 + R * 0.12
+  const rad = R * 0.014
+  const N = 3
+  for (let ix = 0; ix < N; ix++) for (let iz = 0; iz < N; iz++) {
+    const fx = 0.2 + (ix / (N - 1)) * 0.6, fz = 0.2 + (iz / (N - 1)) * 0.6
+    group.add(gradientArrow(new THREE.Vector3(box.min.x + fx * size.x, top, box.min.z + fz * size.z), len, rad))
   }
 }
 
-// The mass distribution made visible: the equivalent-inertia ellipsoid at the CoM
-// (semi-axes solved from the inertia tensor), its principal axes, and the gravity
-// vector. Long axis = mass spread that way; short axis = compact / hard to topple.
-function buildInertia(group: THREE.Group, pap: PAP) {
-  while (group.children.length) {
-    const c = group.children[0] as THREE.Mesh
-    group.remove(c); c.geometry?.dispose?.(); (c.material as THREE.Material)?.dispose?.()
+// Apply the current view's materials, and (re)build the gravity-arrow field + gradient
+// uniforms from the loaded model's world box. Model-relative → never blows up.
+function updateForce(r: Refs, view: 'textured' | 'masks' | 'inertia') {
+  r.scene.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(r.content)
+  if (!box.isEmpty()) {
+    r.gradMat.uniforms.uMin.value = box.min.y
+    r.gradMat.uniforms.uMax.value = box.max.y
+    buildForceField(r.forceGroup, box)
   }
-  const I = pap.physical.inertia, m = pap.physical.mass_kg, com = pap.physical.com ?? [0, 0, 0]
-  const ok = Array.isArray(I) && I.length === 3 && I.every((r) => r?.length === 3) && I.flat().some((x) => Math.abs(x) > 1e-9)
-  if (!ok || m <= 0) return
-  const { values, vectors } = symEig3(I)
-  const S = 2.5 * (values[0] + values[1] + values[2]) / m
-  const semi = [0, 1, 2].map((i) => Math.sqrt(Math.max(1e-5, S - (5 * values[i]) / m)))
-  const span = Math.max(...semi, 1e-3)
-
-  const ell = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 36, 24),
-    new THREE.MeshStandardMaterial({ color: 0x34c0ad, transparent: true, opacity: 0.26, roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide, depthWrite: false }),
-  )
-  ell.scale.set(semi[0], semi[1], semi[2])
-  ell.position.set(com[0], com[1], com[2])
-  const e0 = new THREE.Vector3(...vectors[0]).normalize()
-  const e1 = new THREE.Vector3(...vectors[1]).normalize()
-  const e2 = new THREE.Vector3(...vectors[2]).normalize()
-  ell.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(e0, e1, e2))
-  group.add(ell)
-
-  // principal axes
-  const c0 = new THREE.Vector3(com[0], com[1], com[2])
-  ;[[e0, semi[0]], [e1, semi[1]], [e2, semi[2]]].forEach(([dir, len]) => {
-    group.add(new THREE.ArrowHelper(dir as THREE.Vector3, c0, (len as number) * 1.15, 0x9fb0b6, span * 0.12, span * 0.07))
-  })
-  // gravity (canonical down = -Z)
-  group.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), c0, span * 1.8, 0xD9A84C, span * 0.16, span * 0.09))
-  // CoM marker
-  const dot = new THREE.Mesh(new THREE.SphereGeometry(span * 0.06, 16, 16), new THREE.MeshBasicMaterial({ color: 0xE7EAEC }))
-  dot.position.copy(c0); group.add(dot)
+  applyView(r.groups, view, r.gradMat)
+  r.forceGroup.visible = view === 'inertia'
 }
 
 /** Dark device stage: renders the real textured model (materials/textures intact),
@@ -250,7 +255,8 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
     grid.rotation.x = Math.PI / 2; world.add(grid)
     const meshHolder = new THREE.Group(); world.add(meshHolder)
     const content = new THREE.Group(); meshHolder.add(content)
-    const inertiaGroup = new THREE.Group(); inertiaGroup.visible = false; meshHolder.add(inertiaGroup)
+    const forceGroup = new THREE.Group(); forceGroup.visible = false; scene.add(forceGroup)
+    const gradMat = makeGradientMat()
 
     const footprint = new THREE.LineLoop(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: IDLE }))
     world.add(footprint)
@@ -323,7 +329,7 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
       controls.update()
     }
 
-    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, inertiaGroup, groups: [], urls: [], footprint, comDot, plumb, landing, setCam, raf: 0 }
+    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, forceGroup, gradMat, groups: [], urls: [], footprint, comDot, plumb, landing, setCam, raf: 0 }
     refs.current = r
     tick()
     return () => {
@@ -342,34 +348,33 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
     r.meshHolder.position.set(p[0] ?? 0, p[1] ?? 0, p[2] ?? 0)
     clearContent(r)
     setHasContent(false)
-    if (pap) buildInertia(r.inertiaGroup, pap)
-    r.inertiaGroup.visible = view === 'inertia'
+    r.forceGroup.visible = false
 
     if (file) {
       loadModel(file, extras ?? [], r.urls).then((model) => {
         if (cancelled || refs.current !== r) return
         r.content.add(model)
         r.groups = buildGroups(model)
-        applyView(r.groups, view === 'masks' ? 'masks' : 'textured')
         frame(r)
+        updateForce(r, view)
         setHasContent(true)
       }).catch((e) => { if (!cancelled) console.error('model load failed', e) })
     } else if (pap?.parts?.some((pt) => pt.verts?.length)) {
       r.groups = buildPartGroup(r.content, pap.parts)
-      applyView(r.groups, view === 'masks' ? 'masks' : 'textured')
       frame(r)
+      updateForce(r, view)
       setHasContent(true)
     }
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file, extras, pap?.asset_id])
 
-  // ---- recolour + inertia overlay on view toggle ----
+  // ---- recolour + force overlay on view toggle ----
   useEffect(() => {
     const r = refs.current
     if (!r) return
-    applyView(r.groups, view === 'masks' ? 'masks' : 'textured')
-    r.inertiaGroup.visible = view === 'inertia'
+    applyView(r.groups, view, r.gradMat)
+    r.forceGroup.visible = view === 'inertia'
   }, [view, hasContent])
 
   // ---- placement + verdict viz ----
