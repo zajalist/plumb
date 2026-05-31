@@ -6,6 +6,8 @@ import { Viewport } from './Viewport'
 import { Properties } from './Properties'
 import { Inspector } from './Inspector'
 import { GateStack } from './GateStack'
+import { Splash } from './Splash'
+import { getRecent, addRecent, type RecentEntry } from './recent'
 import { ReactFlowProvider } from '@xyflow/react'
 import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
 import Palette from './components/Palette'
@@ -14,6 +16,12 @@ import { bake, validate, repair, commit, type Verdict } from './api'
 import './App.css'
 
 export default function App() {
+  // launch flow: Splash → IDE (WP-1)
+  const [started, setStarted] = useState(false)
+  const [recent, setRecent] = useState<RecentEntry[]>(() => getRecent())
+  const startNew = useCallback(() => setStarted(true), [])
+  const openProject = useCallback((name: string) => { setRecent(addRecent(name)); setStarted(true) }, [])
+
   const [assets, setAssets] = useState<Asset[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const selected = assets.find((a) => a.id === sel) ?? null
@@ -73,6 +81,16 @@ export default function App() {
     ? <Inspector pos={pos} setPos={setPos} verdict={verdict} busy={busy}
         onValidate={onValidate} onRepair={onRepair} onCommit={onCommit} />
     : undefined
+
+  if (!started) {
+    return (
+      <>
+        <IconDefs />
+        <Splash recent={recent} onNew={startNew}
+          onOpen={(f) => openProject(f.name)} onOpenRecent={(e) => openProject(e.name)} />
+      </>
+    )
+  }
 
   return (
     <div className="app">
