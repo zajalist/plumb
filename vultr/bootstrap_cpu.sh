@@ -24,12 +24,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 
-# CPU torch + torchvision TOGETHER from the same index — installing torch alone lets timm
-# pull a mismatched torchvision, which breaks `transformers` with
-# "operator torchvision::nms does not exist".
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-
 pip install -r requirements.txt
+
+# Force the matching CPU torch+torchvision pair LAST: timm (in requirements) pulls a PyPI
+# torchvision built against CUDA torch, same version number but wrong build — pip then thinks
+# it's "satisfied". --force-reinstall from the CPU index guarantees torchvision::nms is
+# registered (otherwise every transformers vision pipeline dies on import).
+pip install --force-reinstall --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
 TOKEN="${VULTR_TOKEN:-$(openssl rand -hex 16)}"
 echo

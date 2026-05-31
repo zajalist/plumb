@@ -21,13 +21,14 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 
-# 3. GPU torch + torchvision TOGETHER (CUDA 12.1 wheel; change cu121 to match the driver).
-# Install them as a pair — torch alone lets timm pull a mismatched torchvision, which breaks
-# transformers with "operator torchvision::nms does not exist".
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-
-# 4. The rest
+# 3. The rest first (timm etc.)
 pip install -r requirements.txt
+
+# 4. Force the matching CUDA torch+torchvision pair LAST (change cu121 to match the driver).
+# timm pulls a PyPI torchvision with the same version number but a different build, which pip
+# treats as "satisfied"; --force-reinstall from the CUDA index guarantees torchvision::nms is
+# registered — otherwise every transformers vision pipeline dies on import.
+pip install --force-reinstall --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 # 5. Token + launch
 TOKEN="${VULTR_TOKEN:-$(openssl rand -hex 16)}"
