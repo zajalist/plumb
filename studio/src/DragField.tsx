@@ -3,7 +3,7 @@ import { useRef, useState, type ReactNode } from 'react'
 // A working Gaea-style numeric field: a recessed bar with a teal fill, scrubbed by
 // dragging horizontally; a plain click (no drag) drops into a typed input. An
 // optional prefix (e.g. an axis letter) sits at the left of the field.
-export function DragField({ value, onChange, min = -2, max = 2, step = 0.01, decimals = 2, unit, prefix }: {
+export function DragField({ value, onChange, min = -2, max = 2, step = 0.01, decimals = 2, unit, prefix, showFill = true }: {
   value: number
   onChange: (v: number) => void
   min?: number
@@ -12,6 +12,7 @@ export function DragField({ value, onChange, min = -2, max = 2, step = 0.01, dec
   decimals?: number
   unit?: string
   prefix?: ReactNode
+  showFill?: boolean   // the Gaea-style teal fill bar (off for unbounded values like CoM axes)
 }) {
   const [editing, setEditing] = useState(false)
   const drag = useRef<{ x: number; v: number; moved: boolean } | null>(null)
@@ -52,7 +53,7 @@ export function DragField({ value, onChange, min = -2, max = 2, step = 0.01, dec
       className={`dragfield${prefix != null ? ' has-prefix' : ''}`} title="drag to scrub · click to type"
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
     >
-      <span className="fill" style={{ width: `${pct}%` }} />
+      {showFill && <span className="fill" style={{ width: `${pct}%` }} />}
       {prefix != null && <span className="dprefix">{prefix}</span>}
       <span className="dv">{value.toFixed(decimals)}</span>
       {unit && <span className="du">{unit}</span>}

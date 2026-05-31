@@ -131,7 +131,7 @@ export function Properties({ pap, footer, onConfirm, onCloseMesh, busy, declared
             <span className="k"><Icon name="com" />centre of mass</span>
             <span className="vec">
               {(comOv ?? pap.physical.com).map((c, i) => (
-                <DragField key={i} value={c} min={-2} max={2} step={0.01} decimals={2}
+                <DragField key={i} value={c} min={-2} max={2} step={0.01} decimals={2} showFill={false}
                   prefix={<span style={{ color: AXIS[i], fontWeight: 700 }}>{'XYZ'[i]}</span>}
                   onChange={(v) => { const next = [...(comOv ?? pap.physical.com)]; next[i] = v; setComOv(next) }} />
               ))}
