@@ -20,11 +20,13 @@ import {
 import '@xyflow/react/dist/style.css'
 import {
   evaluateGraph,
+  type NodeKind,
+  type NodeOp,
   type NodeResult,
   type PlumbData,
   type SceneState,
 } from '../lib/engine'
-import { DEF_BY_OP, nextId, seedGraph, specToNode } from '../lib/catalog'
+import { DEF_BY_OP, DEFAULT_OP_BY_KIND, nextId, seedGraph, specToNode } from '../lib/catalog'
 import { STATUS_COLOR, STATUS_LABEL, PORT_COLOR } from '../lib/theme'
 import { canConnect, connect, type GetNodeData } from '../lib/connection'
 import { useUndoRedo } from '../lib/useUndoRedo'
@@ -243,7 +245,10 @@ export default function ConstraintGraph({
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
-      const op = e.dataTransfer.getData('application/plumb-node')
+      // New (P0): an abstract node carries its kind → start at that kind's default
+      // op. Legacy: a concrete op was dragged. Either resolves to a NodeDef.
+      const kind = e.dataTransfer.getData('application/plumb-node-kind') as NodeKind | ''
+      const op = kind ? DEFAULT_OP_BY_KIND[kind] : e.dataTransfer.getData('application/plumb-node')
       const spec = DEF_BY_OP[op]
       if (!spec) return
       takeSnapshot()
@@ -251,6 +256,41 @@ export default function ConstraintGraph({
       setNodes((nds) => nds.concat(specToNode(spec, nextId(op), position)))
     },
     [screenToFlowPosition, setNodes, takeSnapshot],
+  )
+
+  // Change a node's concrete op (the inspector Type dropdown). Re-derives the
+  // node's metadata from the registry and prunes any wire whose typed ports no
+  // longer match (e.g. a measure switched scalar→bool drops its law edge).
+  const onChangeOp = useCallback(
+    (id: string, op: NodeOp) => {
+      const def = DEF_BY_OP[op]
+      if (!def) return
+      takeSnapshot()
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === id
+            ? {
+                ...n,
+                data: {
+                  ...(n.data as PlumbData),
+                  op: def.op, label: def.label, sub: def.sub,
+                  accepts: def.accepts, provides: def.provides,
+                  hard: def.hard, control: def.control,
+                },
+              }
+            : n,
+        ),
+      )
+      setEdges((eds) =>
+        eds.filter((e) => {
+          if (e.source !== id && e.target !== id) return true
+          const provides = e.source === id ? def.provides : getData(e.source)?.provides
+          const accepts = e.target === id ? def.accepts : getData(e.target)?.accepts
+          return !!provides && !!accepts && accepts.includes(provides)
+        }),
+      )
+    },
+    [setNodes, setEdges, getData, takeSnapshot],
   )
 
   // Delete a set of nodes (one or many) plus any wire touching them.
@@ -345,6 +385,7 @@ export default function ConstraintGraph({
           incoming={incoming}
           bronzeX={scene.bronzeX}
           setBronzeX={setBronzeX}
+          onChangeOp={onChangeOp}
           onDelete={onDelete}
           onDeleteEdge={onDeleteEdge}
           onDeleteMany={onDeleteNodes}

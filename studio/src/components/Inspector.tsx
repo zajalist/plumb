@@ -1,6 +1,7 @@
 import type { Node } from '@xyflow/react'
-import { BRONZE_X_MIN, BRONZE_X_MAX, type NodeKind, type NodeResult, type PlumbData, type PortType } from '../lib/engine'
+import { BRONZE_X_MIN, BRONZE_X_MAX, type NodeKind, type NodeOp, type NodeResult, type PlumbData, type PortType } from '../lib/engine'
 import { STATUS_COLOR, PORT_COLOR, KIND_LABEL } from '../lib/theme'
+import { OPS_BY_KIND } from '../lib/catalog'
 
 /** A selected wire, resolved to the endpoints + the port type it carries. */
 export type EdgeInfo = {
@@ -110,6 +111,7 @@ export default function Inspector({
   incoming,
   bronzeX,
   setBronzeX,
+  onChangeOp,
   onDelete,
   onDeleteEdge,
   onDeleteMany,
@@ -121,6 +123,7 @@ export default function Inspector({
   incoming: { label: string; type?: PortType }[]
   bronzeX: number
   setBronzeX: (x: number) => void
+  onChangeOp: (id: string, op: NodeOp) => void
   onDelete: (id: string) => void
   onDeleteEdge: (id: string) => void
   onDeleteMany: (ids: string[]) => void
@@ -145,6 +148,21 @@ export default function Inspector({
       <div className="inspector-kind">{KIND_LABEL[d.kind] ?? d.kind}</div>
       <div className="inspector-title">{d.label}</div>
       {d.sub && <div className="inspector-sub">{d.sub}</div>}
+
+      {OPS_BY_KIND[d.kind] && OPS_BY_KIND[d.kind].length > 1 && (
+        <div className="inspector-section">
+          <div className="inspector-h">Type</div>
+          <select
+            className="inspector-select"
+            value={d.op}
+            onChange={(e) => onChangeOp(node.id, e.target.value as NodeOp)}
+          >
+            {OPS_BY_KIND[d.kind].map((o) => (
+              <option key={o.op} value={o.op}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="inspector-section">
         <div className="inspector-h">Ports</div>
