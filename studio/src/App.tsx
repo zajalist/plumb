@@ -65,11 +65,11 @@ export default function App() {
 
   // Bake one queued file through the real backend, walking its status (converting
   // for .uasset → baking → ok/error) so the stage queue shows live progress.
-  const bakeFile = useCallback(async (file: File, id: string) => {
+  const bakeFile = useCallback(async (file: File, id: string, extras?: File[]) => {
     const isU = file.name.toLowerCase().endsWith('.uasset')
     setAssets((a) => a.map((x) => (x.id === id ? { ...x, status: isU ? 'converting' : 'baking' } : x)))
     try {
-      const pap = await bake(file, { profile: settings.profile, decimate: settings.simplify ? 6000 : undefined })
+      const pap = await bake(file, { profile: settings.profile, decimate: settings.simplify ? 6000 : undefined, extras })
       setAssets((a) => a.map((x) => (x.id === id ? { ...x, pap, status: 'ok' } : x)))
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -80,7 +80,12 @@ export default function App() {
   // Add dropped/selected files to the queue, then bake. .uasset files are converted
   // in ONE Unreal boot (batch) and baked from their tokens; meshes bake directly.
   const onAddFiles = useCallback(async (files: File[]) => {
-    const added = files.map((f): Asset => ({
+    // mesh files become assets; everything else (.bin, textures) rides along as
+    // sidecars for any .gltf in the same drop (a .gltf isn't self-contained).
+    const meshFiles = files.filter((f) => /\.(obj|glb|gltf|stl|uasset)$/i.test(f.name))
+    const sidecars = files.filter((f) => !/\.(obj|glb|gltf|stl|uasset)$/i.test(f.name))
+    if (meshFiles.length === 0) return
+    const added = meshFiles.map((f): Asset => ({
       id: `${f.name.replace(/\.[^.]+$/, '')}-${Math.random().toString(36).slice(2, 6)}`,
       name: f.name, file: f, status: 'queued',
     }))
@@ -111,7 +116,10 @@ export default function App() {
       }
     }
 
-    for (const x of meshes) await bakeFile(x.file!, x.id)
+    for (const x of meshes) {
+      const extras = x.name.toLowerCase().endsWith('.gltf') ? sidecars : undefined
+      await bakeFile(x.file!, x.id, extras)
+    }
   }, [bakeFile, settings])
 
   const onImport = useCallback((file: File) => { void onAddFiles([file]) }, [onAddFiles])
@@ -189,8 +197,9 @@ export default function App() {
           <div className="mbtn"><Icon name="open" />Open</div>
           <label className="mbtn key">
             <Icon name="import" />Import mesh
-            <input type="file" accept=".obj,.glb,.stl" style={{ display: 'none' }}
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f) }} />
+            <input type="file" multiple accept=".obj,.glb,.gltf,.stl,.uasset,.bin,.png,.jpg,.jpeg,.webp,.ktx2"
+              style={{ display: 'none' }}
+              onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) onAddFiles(fs); e.currentTarget.value = '' }} />
           </label>
         </div>
         <div className="proj">
