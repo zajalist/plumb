@@ -28,6 +28,7 @@ type Refs = {
   comDot: THREE.Mesh
   plumb: THREE.Line
   landing: THREE.Mesh
+  setCam: (v: 'recenter' | 'top' | 'front' | 'side' | 'persp') => void
   raf: number
 }
 
@@ -299,7 +300,29 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
     })
     ro.observe(host)
 
-    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, inertiaGroup, groups: [], urls: [], footprint, comDot, plumb, landing, raf: 0 }
+    // camera presets: frame the content from a canonical direction (or recenter)
+    const VIEW_DIR: Record<string, [number, number, number]> = {
+      top: [0, 1, 0.0001], front: [0, 0, 1], side: [1, 0, 0], persp: [1, 0.7, 1],
+    }
+    const setCam = (v: 'recenter' | 'top' | 'front' | 'side' | 'persp') => {
+      controls.autoRotate = false
+      scene.updateMatrixWorld(true)
+      const box = new THREE.Box3().setFromObject(content)
+      const center = box.isEmpty() ? new THREE.Vector3(0, 0.3, 0) : box.getCenter(new THREE.Vector3())
+      const radius = box.isEmpty() ? 1 : Math.max(box.getBoundingSphere(new THREE.Sphere()).radius, 1e-3)
+      const dir = v === 'recenter'
+        ? new THREE.Vector3().subVectors(cam.position, controls.target).normalize()
+        : new THREE.Vector3(...VIEW_DIR[v]).normalize()
+      if (dir.lengthSq() < 1e-6) dir.set(1, 0.7, 1).normalize()
+      const dist = (radius / Math.sin((cam.fov * Math.PI / 180) / 2)) * 1.35
+      cam.up.set(0, v === 'top' ? 0 : 1, v === 'top' ? -1 : 0)
+      controls.target.copy(center)
+      cam.position.copy(center).addScaledVector(dir, dist)
+      cam.lookAt(center)
+      controls.update()
+    }
+
+    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, inertiaGroup, groups: [], urls: [], footprint, comDot, plumb, landing, setCam, raf: 0 }
     refs.current = r
     tick()
     return () => {
@@ -393,6 +416,14 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
           if (files.length) onDropFiles(files)
         } : undefined}
       >
+        <div className="cambar">
+          <button title="Recenter / frame" onClick={() => refs.current?.setCam('recenter')}>⌖</button>
+          <span className="cb-sep" />
+          <button onClick={() => refs.current?.setCam('top')}>Top</button>
+          <button onClick={() => refs.current?.setCam('front')}>Front</button>
+          <button onClick={() => refs.current?.setCam('side')}>Side</button>
+          <button onClick={() => refs.current?.setCam('persp')}>Persp</button>
+        </div>
         <div className="crop tl" /><div className="crop tr" /><div className="crop bl" /><div className="crop br" />
         <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
         {emptyMsg && <div className="emptyvp">{emptyMsg}</div>}
