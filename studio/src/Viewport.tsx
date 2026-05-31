@@ -21,12 +21,15 @@ type Refs = {
   grid: THREE.GridHelper
   meshHolder: THREE.Group     // placed assembly (moves with pos)
   content: THREE.Group        // the loaded model OR convex-part masks
+  forceGroup: THREE.Group     // gravity-arrow field (inertia/force view)
+  gradMat: THREE.ShaderMaterial   // vertical force-gradient mask for the inertia view
   groups: Group[]             // material groups (or parts) for the masks view
   urls: string[]              // blob URLs to revoke
   footprint: THREE.LineLoop
   comDot: THREE.Mesh
   plumb: THREE.Line
   landing: THREE.Mesh
+  setCam: (v: 'recenter' | 'top' | 'front' | 'side' | 'persp') => void
   raf: number
 }
 
@@ -48,12 +51,14 @@ function buildGroups(root: THREE.Object3D): Group[] {
   return [...byMat.values()]
 }
 
-function applyView(groups: Group[], view: 'textured' | 'masks') {
+function applyView(groups: Group[], view: 'textured' | 'masks' | 'inertia', gradMat: THREE.Material) {
   for (const g of groups) {
     g.meshes.forEach((m, i) => {
       if (view === 'masks') {
         const mm = m.userData.maskMat ||= new THREE.MeshStandardMaterial({ color: g.color, roughness: 0.85, metalness: 0.04, flatShading: false })
         m.material = mm
+      } else if (view === 'inertia') {
+        m.material = gradMat
       } else {
         m.material = g.orig[i]
       }
@@ -137,19 +142,86 @@ function buildPartGroup(content: THREE.Group, parts: Part[]): Group[] {
   return groups
 }
 
+// A vertical gradient material (cool teal at the top → warm amber at the base) keyed
+// to world height — the "force gradient" mask shown in the inertia view. Lit by a
+// fixed direction so the model's shape still reads.
+function makeGradientMat(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { uMin: { value: 0 }, uMax: { value: 1 }, cBot: { value: new THREE.Color(0xd9a84c) }, cTop: { value: new THREE.Color(0x34c0ad) } },
+    vertexShader: `varying float vY; varying vec3 vN;
+      void main(){ vec4 wp = modelMatrix*vec4(position,1.0); vY = wp.y; vN = normalize(normalMatrix*normal);
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `uniform float uMin; uniform float uMax; uniform vec3 cBot; uniform vec3 cTop; varying float vY; varying vec3 vN;
+      void main(){ float t = clamp((vY-uMin)/max(uMax-uMin,1e-4),0.0,1.0); vec3 base = mix(cBot,cTop,t);
+      float d = 0.5 + 0.5*dot(vN, normalize(vec3(0.35,0.8,0.45))); gl_FragColor = vec4(base*(0.5+0.5*d),1.0); }`,
+    side: THREE.DoubleSide,
+  })
+}
+
+// One downward gravity arrow with a teal→amber gradient along its length.
+function gradientArrow(top: THREE.Vector3, length: number, radius: number): THREE.Group {
+  const g = new THREE.Group()
+  const cTop = new THREE.Color(0x34c0ad), cBot = new THREE.Color(0xd9a84c)
+  const sl = length * 0.74
+  const shaft = new THREE.CylinderGeometry(radius * 0.42, radius * 0.42, sl, 8)
+  const p = shaft.attributes.position, col = new Float32Array(p.count * 3)
+  for (let i = 0; i < p.count; i++) { const t = p.getY(i) / sl + 0.5; const c = cBot.clone().lerp(cTop, t); col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b }
+  shaft.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  const sm = new THREE.Mesh(shaft, new THREE.MeshBasicMaterial({ vertexColors: true }))
+  sm.position.copy(top).add(new THREE.Vector3(0, -sl / 2, 0)); g.add(sm)
+  const head = new THREE.Mesh(new THREE.ConeGeometry(radius, length * 0.28, 12), new THREE.MeshBasicMaterial({ color: cBot }))
+  head.rotation.x = Math.PI; head.position.copy(top).add(new THREE.Vector3(0, -(sl + length * 0.14), 0)); g.add(head)
+  return g
+}
+
+// A field of downward gravity arrows over the model's footprint (world space, Y-up),
+// sized to the model — the "inertia forces" pointing at gravity. Model-relative, so
+// there are no physics-unit blow-ups.
+function buildForceField(group: THREE.Group, box: THREE.Box3) {
+  while (group.children.length) { const c = group.children[0]; group.remove(c); c.traverse?.((o) => { const m = o as THREE.Mesh; m.geometry?.dispose?.() }) }
+  if (box.isEmpty()) return
+  const size = box.getSize(new THREE.Vector3())
+  const R = Math.max(size.x, size.y, size.z, 1e-3)
+  const top = box.max.y + R * 0.05
+  const len = size.y * 0.55 + R * 0.12
+  const rad = R * 0.014
+  const N = 3
+  for (let ix = 0; ix < N; ix++) for (let iz = 0; iz < N; iz++) {
+    const fx = 0.2 + (ix / (N - 1)) * 0.6, fz = 0.2 + (iz / (N - 1)) * 0.6
+    group.add(gradientArrow(new THREE.Vector3(box.min.x + fx * size.x, top, box.min.z + fz * size.z), len, rad))
+  }
+}
+
+// Apply the current view's materials, and (re)build the gravity-arrow field + gradient
+// uniforms from the loaded model's world box. Model-relative → never blows up.
+function updateForce(r: Refs, view: 'textured' | 'masks' | 'inertia') {
+  r.scene.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(r.content)
+  if (!box.isEmpty()) {
+    r.gradMat.uniforms.uMin.value = box.min.y
+    r.gradMat.uniforms.uMax.value = box.max.y
+    buildForceField(r.forceGroup, box)
+  }
+  applyView(r.groups, view, r.gradMat)
+  r.forceGroup.visible = view === 'inertia'
+}
+
 /** Dark device stage: renders the real textured model (materials/textures intact),
  *  with a textured ↔ masks toggle that colours each material group. Plus the verdict
  *  viz (CoM, plumb, support footprint). Canonical is Z-up; world tilted so Z reads up. */
-export function Viewport({ name, file, extras, pap, pos, verdict, status }: {
+export function Viewport({ name, file, extras, pap, pos, verdict, status, onDropFiles }: {
   name: string; file?: File | null; extras?: File[]
   pap: PAP | null; pos: number[]; verdict: Verdict | null
   status?: 'queued' | 'converting' | 'baking' | 'ok' | 'error' | 'declared'
+  onDropFiles?: (files: File[]) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const refs = useRef<Refs | null>(null)
   const posRef = useRef(pos); posRef.current = pos
-  const [view, setView] = useState<'textured' | 'masks'>('textured')
+  const [view, setView] = useState<'textured' | 'masks' | 'inertia'>('textured')
   const [hasContent, setHasContent] = useState(false)
+  const [dropping, setDropping] = useState(false)
+  const [camView, setCamView] = useState<'top' | 'front' | 'side' | 'persp'>('persp')
 
   const emptyMsg = hasContent ? null
     : status === 'baking' ? 'decomposing…'
@@ -168,7 +240,7 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status }: {
     const scene = new THREE.Scene()
     scene.background = new THREE.Color('#0A0C0E')
     const cam = new THREE.PerspectiveCamera(38, w / h, 0.01, 100)
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
     renderer.setSize(w, h)
     renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -183,6 +255,8 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status }: {
     grid.rotation.x = Math.PI / 2; world.add(grid)
     const meshHolder = new THREE.Group(); world.add(meshHolder)
     const content = new THREE.Group(); meshHolder.add(content)
+    const forceGroup = new THREE.Group(); forceGroup.visible = false; scene.add(forceGroup)
+    const gradMat = makeGradientMat()
 
     const footprint = new THREE.LineLoop(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: IDLE }))
     world.add(footprint)
@@ -200,14 +274,62 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status }: {
     controls.target.set(0, 0.3, 0)
     controls.addEventListener('start', () => { controls.autoRotate = false })
 
-    const tick = () => { controls.update(); renderer.render(scene, cam); r.raf = requestAnimationFrame(tick) }
+    // corner orientation gizmo (canonical Z-up · X red / Y green / Z blue)
+    const giz = new THREE.Scene()
+    const gcam = new THREE.OrthographicCamera(-1.7, 1.7, 1.7, -1.7, 0.1, 10)
+    const triad = new THREE.Group()
+    const axis = (d: THREE.Vector3, c: number) => triad.add(new THREE.ArrowHelper(d, new THREE.Vector3(), 1, c, 0.32, 0.2))
+    axis(new THREE.Vector3(1, 0, 0), 0xe0694f)
+    axis(new THREE.Vector3(0, 1, 0), 0x6fbf73)
+    axis(new THREE.Vector3(0, 0, 1), 0x5c8bd6)
+    triad.quaternion.copy(world.quaternion)
+    giz.add(triad)
+    const _sz = new THREE.Vector2(), _dir = new THREE.Vector3()
+
+    const tick = () => {
+      controls.update()
+      renderer.render(scene, cam)
+      // overlay the axis gizmo in the bottom-left corner
+      _dir.copy(cam.position).sub(controls.target).normalize().multiplyScalar(4)
+      gcam.position.copy(_dir); gcam.up.copy(cam.up); gcam.lookAt(0, 0, 0)
+      renderer.getSize(_sz)
+      renderer.autoClear = false
+      renderer.clearDepth()
+      renderer.setViewport(12, 12, 78, 78)
+      renderer.render(giz, gcam)
+      renderer.setViewport(0, 0, _sz.x, _sz.y)
+      renderer.autoClear = true
+      r.raf = requestAnimationFrame(tick)
+    }
     const ro = new ResizeObserver(() => {
       const nw = host.clientWidth, nh = host.clientHeight
       if (nw && nh) { cam.aspect = nw / nh; cam.updateProjectionMatrix(); renderer.setSize(nw, nh) }
     })
     ro.observe(host)
 
-    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, groups: [], urls: [], footprint, comDot, plumb, landing, raf: 0 }
+    // camera presets: frame the content from a canonical direction (or recenter)
+    const VIEW_DIR: Record<string, [number, number, number]> = {
+      top: [0, 1, 0.0001], front: [0, 0, 1], side: [1, 0, 0], persp: [1, 0.7, 1],
+    }
+    const setCam = (v: 'recenter' | 'top' | 'front' | 'side' | 'persp') => {
+      controls.autoRotate = false
+      scene.updateMatrixWorld(true)
+      const box = new THREE.Box3().setFromObject(content)
+      const center = box.isEmpty() ? new THREE.Vector3(0, 0.3, 0) : box.getCenter(new THREE.Vector3())
+      const radius = box.isEmpty() ? 1 : Math.max(box.getBoundingSphere(new THREE.Sphere()).radius, 1e-3)
+      const dir = v === 'recenter'
+        ? new THREE.Vector3().subVectors(cam.position, controls.target).normalize()
+        : new THREE.Vector3(...VIEW_DIR[v]).normalize()
+      if (dir.lengthSq() < 1e-6) dir.set(1, 0.7, 1).normalize()
+      const dist = (radius / Math.sin((cam.fov * Math.PI / 180) / 2)) * 1.35
+      cam.up.set(0, v === 'top' ? 0 : 1, v === 'top' ? -1 : 0)
+      controls.target.copy(center)
+      cam.position.copy(center).addScaledVector(dir, dist)
+      cam.lookAt(center)
+      controls.update()
+    }
+
+    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, forceGroup, gradMat, groups: [], urls: [], footprint, comDot, plumb, landing, setCam, raf: 0 }
     refs.current = r
     tick()
     return () => {
@@ -226,30 +348,33 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status }: {
     r.meshHolder.position.set(p[0] ?? 0, p[1] ?? 0, p[2] ?? 0)
     clearContent(r)
     setHasContent(false)
+    r.forceGroup.visible = false
 
     if (file) {
       loadModel(file, extras ?? [], r.urls).then((model) => {
         if (cancelled || refs.current !== r) return
         r.content.add(model)
         r.groups = buildGroups(model)
-        applyView(r.groups, view)
         frame(r)
+        updateForce(r, view)
         setHasContent(true)
       }).catch((e) => { if (!cancelled) console.error('model load failed', e) })
     } else if (pap?.parts?.some((pt) => pt.verts?.length)) {
       r.groups = buildPartGroup(r.content, pap.parts)
-      applyView(r.groups, view)
       frame(r)
+      updateForce(r, view)
       setHasContent(true)
     }
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file, extras, pap?.asset_id])
 
-  // ---- recolour on textured/masks toggle ----
+  // ---- recolour + force overlay on view toggle ----
   useEffect(() => {
     const r = refs.current
-    if (r) applyView(r.groups, view)
+    if (!r) return
+    applyView(r.groups, view, r.gradMat)
+    r.forceGroup.visible = view === 'inertia'
   }, [view, hasContent])
 
   // ---- placement + verdict viz ----
@@ -278,20 +403,68 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status }: {
   return (
     <section className="pane viewport">
       <header>
-        <div className="t"><Icon name="aperture" /><span>Viewport — {name || '—'}</span></div>
+        <div className="t"><Icon name="aperture" /><span>Viewport{name ? ` · ${name}` : ''}</span></div>
         {hasContent && (
           <div className="vptoggle">
             <button className={view === 'textured' ? 'on' : ''} onClick={() => setView('textured')}>textured</button>
             <button className={view === 'masks' ? 'on' : ''} onClick={() => setView('masks')}>masks</button>
+            <button className={view === 'inertia' ? 'on' : ''} onClick={() => setView('inertia')}>inertia</button>
           </div>
         )}
       </header>
-      <div className="stage">
+      <div
+        className={`stage${dropping ? ' dropping' : ''}`}
+        onDragOver={onDropFiles ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; if (!dropping) setDropping(true) } : undefined}
+        onDragLeave={onDropFiles ? (e) => { if (e.currentTarget === e.target) setDropping(false) } : undefined}
+        onDrop={onDropFiles ? (e) => {
+          e.preventDefault(); setDropping(false)
+          const files = Array.from(e.dataTransfer.files)
+          if (files.length) onDropFiles(files)
+        } : undefined}
+      >
+        <div className="cambar">
+          <button className="cb-recenter" data-tip="Recenter" onClick={() => refs.current?.setCam('recenter')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <circle cx="12" cy="12" r="5.5" /><path d="M12 2v3.5M12 18.5V22M2 12h3.5M18.5 12H22" />
+            </svg>
+          </button>
+          <span className="cb-sep" />
+          {CAM_VIEWS.map(({ v, tip, face }) => (
+            <button key={v} className={camView === v ? 'on' : ''} data-tip={tip}
+              onClick={() => { setCamView(v); refs.current?.setCam(v) }}>
+              <CubeIcon face={face} />
+            </button>
+          ))}
+        </div>
         <div className="crop tl" /><div className="crop tr" /><div className="crop bl" /><div className="crop br" />
         <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
         {emptyMsg && <div className="emptyvp">{emptyMsg}</div>}
-        <div className="axis">Z↑ X→<br />m · kg</div>
+        {dropping && <div className="dropover"><Icon name="import" /><span>Drop to bake</span></div>}
       </div>
     </section>
   )
 }
+
+// An isometric cube whose highlighted face conveys the view (top / front / side);
+// no face = the free perspective view.
+type CubeFace = 'top' | 'left' | 'right' | 'none'
+const FACE_PATH: Record<Exclude<CubeFace, 'none'>, string> = {
+  top: 'M12,3.5 L20.5,8.25 L12,13 L3.5,8.25 Z',
+  left: 'M3.5,8.25 L12,13 L12,20.5 L3.5,15.75 Z',
+  right: 'M20.5,8.25 L12,13 L12,20.5 L20.5,15.75 Z',
+}
+function CubeIcon({ face }: { face: CubeFace }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+      {face !== 'none' && <path d={FACE_PATH[face]} fill="currentColor" fillOpacity="0.6" stroke="none" />}
+      <path d="M12,3.5 L20.5,8.25 L20.5,15.75 L12,20.5 L3.5,15.75 L3.5,8.25 Z" />
+      <path d="M3.5,8.25 L12,13 L20.5,8.25 M12,13 L12,20.5" />
+    </svg>
+  )
+}
+const CAM_VIEWS: { v: 'top' | 'front' | 'side' | 'persp'; tip: string; face: CubeFace }[] = [
+  { v: 'top', tip: 'Top', face: 'top' },
+  { v: 'front', tip: 'Front', face: 'left' },
+  { v: 'side', tip: 'Side', face: 'right' },
+  { v: 'persp', tip: 'Perspective', face: 'none' },
+]

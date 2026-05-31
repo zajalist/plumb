@@ -1,6 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Icon } from './Icons'
+import { DragField } from './DragField'
 import type { PAP, WdfAsset } from './api'
+
+// usual axis colour codes (X red · Y green · Z blue), palette-harmonised
+const AXIS = ['#E0694F', '#6FBF73', '#5C8BD6']
 
 const SWATCH: Record<string, string> = {
   bronze: '#7b5a2a', stone: '#6b6a63', glass: '#5b6b6b', wood: '#6e5a36', default: '#5a5750',
@@ -9,16 +13,24 @@ const SWATCH: Record<string, string> = {
 const MASK_PALETTE = ['#34C0AD', '#D9A84C', '#6E8BA0', '#E0694F', '#5FA38C', '#A088B0', '#C2925A', '#7C8AA0']
 const MATERIALS = ['default', 'wood', 'foliage', 'stone', 'metal', 'glass', 'plastic', 'fabric', 'bronze', 'water']
 
-export function Properties({ pap, footer, onConfirm, busy, declared }: {
+export function Properties({ pap, footer, onConfirm, onCloseMesh, onEditPap, busy, declared }: {
   pap: PAP | null
   footer?: ReactNode
   onConfirm?: (materials: Record<string, string>) => void
+  onCloseMesh?: () => void   // re-bake with hole-filling to close an open mesh
+  // manual physics override — patches the PAP so the viewport updates live
+  onEditPap?: (patch: { physical?: Partial<PAP['physical']>; geometry?: Partial<PAP['geometry']> }) => void
   busy?: boolean
   declared?: WdfAsset       // an asset declared by an opened .wdf (no bake yet)
 }) {
   // per-part material overrides (idx -> material), reset when the asset changes
   const [over, setOver] = useState<Record<number, string>>({})
-  useEffect(() => { setOver({}) }, [pap?.asset_id])
+  // stable fill-bar maxima captured per asset (so live mass/volume edits don't move the goalposts)
+  const baseRef = useRef({ mass: 200, vol: 100 })
+  useEffect(() => {
+    setOver({})
+    if (pap) baseRef.current = { mass: Math.max(200, pap.physical.mass_kg * 2), vol: Math.max(100, pap.geometry.volume_m3 * 1000 * 2) }
+  }, [pap?.asset_id])
 
   if (!pap && declared) {
     const masks = Object.entries(declared.material)
@@ -76,7 +88,6 @@ export function Properties({ pap, footer, onConfirm, busy, declared }: {
       </section>
     )
   }
-  const f3 = (n: number) => (n.toFixed(2).replace(/^(-?)0\./, '$1.'))
   const parts = pap.parts ?? []
   const allConfirmed = parts.length > 0 && parts.every((p) => p.confirmed)
 
@@ -100,25 +111,39 @@ export function Properties({ pap, footer, onConfirm, busy, declared }: {
           <div className="prop"><span className="k"><Icon name="seal" />watertight</span><span className="v muted">{pap.geometry.watertight ? `yes · ${pap.geometry.convex_parts} parts` : `no · ${pap.geometry.convex_parts} parts`}</span></div>
           <div className="prop"><span className="k"><Icon name="solid" />hollow</span><span className="v muted">{pap.physical.hollow ? 'yes' : 'no'}</span></div>
         </div>
+        {!pap.geometry.watertight && (
+          <div className="wt-warn">
+            <span className="wt-ico">!</span>
+            <div className="wt-body">
+              <div className="wt-t">Mesh is not closed</div>
+              <div className="wt-d">Open surfaces — mass &amp; volume are <b>estimated</b>. Cap the openings to compute true values.</div>
+            </div>
+            {onCloseMesh && (
+              <button className="wt-cap" disabled={busy} onClick={onCloseMesh}>{busy ? 'Capping…' : 'Cap openings'}</button>
+            )}
+          </div>
+        )}
         <div className="psec">
           <div className="label" style={{ marginBottom: 4 }}>Physics</div>
           <div className="prop">
             <span className="k"><Icon name="mass" />mass</span>
-            <span className="field">
-              <span className="fill" style={{ width: `${Math.max(4, Math.min(100, pap.physical.mass_kg))}%` }} />
-              <span className="fv">{pap.physical.mass_kg.toFixed(1)}</span><span className="fu">kg</span>
-            </span>
+            <DragField value={pap.physical.mass_kg} onChange={(v) => onEditPap?.({ physical: { mass_kg: v } })}
+              min={0} max={baseRef.current.mass} step={0.5} decimals={1} unit="kg" />
           </div>
           <div className="prop">
             <span className="k"><Icon name="com" />centre of mass</span>
-            <span className="vec">{pap.physical.com.map((c, i) => <span className="cell" key={i}>{f3(c)}</span>)}</span>
+            <span className="vec">
+              {pap.physical.com.map((c, i) => (
+                <DragField key={i} value={c} min={-2} max={2} step={0.01} decimals={2} showFill={false}
+                  prefix={<span style={{ color: AXIS[i], fontWeight: 700 }}>{'XYZ'[i]}</span>}
+                  onChange={(v) => { const next = [...pap.physical.com]; next[i] = v; onEditPap?.({ physical: { com: next } }) }} />
+              ))}
+            </span>
           </div>
           <div className="prop">
             <span className="k">volume</span>
-            <span className="field">
-              <span className="fill" style={{ width: `${Math.max(4, Math.min(100, pap.geometry.volume_m3 * 1000 * 2))}%` }} />
-              <span className="fv">{(pap.geometry.volume_m3 * 1000).toFixed(1)}</span><span className="fu">L</span>
-            </span>
+            <DragField value={pap.geometry.volume_m3 * 1000} onChange={(v) => onEditPap?.({ geometry: { volume_m3: v / 1000 } })}
+              min={0} max={baseRef.current.vol} step={0.5} decimals={1} unit="L" />
           </div>
         </div>
         <div className="psec" style={{ borderBottom: 'none' }}>

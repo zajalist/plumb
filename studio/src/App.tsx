@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { IconDefs, Icon } from './Icons'
-import { Brand } from './Brand'
+import { Menubar } from './Menubar'
 import { AssetsPanel, type Asset } from './AssetsPanel'
 import { Viewport } from './Viewport'
 import { Properties } from './Properties'
@@ -14,7 +14,7 @@ import { ReactFlowProvider } from '@xyflow/react'
 import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
 import Palette from './components/Palette'
 import { INITIAL_SCENE, type SceneState } from './lib/engine'
-import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health, type Verdict, type WdfDoc } from './api'
+import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health, type Verdict, type WdfDoc, type PAP } from './api'
 import './App.css'
 
 export default function App() {
@@ -192,7 +192,30 @@ export default function App() {
     if (!selected?.file) return
     setBusy(true)
     try {
-      const pap = await bake(selected.file, { materials, profile: settings.profile })
+      const pap = await bake(selected.file, { materials, profile: settings.profile, extras: selected.extras })
+      setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
+    } finally { setBusy(false) }
+  }, [selected, settings])
+
+  // Manual override of baked physics (mass / volume / CoM). Mutates the selected
+  // asset's PAP so the viewport (CoM marker, plumb, force view) updates live.
+  const onEditPap = useCallback((patch: { physical?: Partial<PAP['physical']>; geometry?: Partial<PAP['geometry']> }) => {
+    setAssets((a) => a.map((x) => (x.id === sel && x.pap)
+      ? { ...x, pap: {
+          ...x.pap,
+          physical: patch.physical ? { ...x.pap.physical, ...patch.physical } : x.pap.physical,
+          geometry: patch.geometry ? { ...x.pap.geometry, ...patch.geometry } : x.pap.geometry,
+        } }
+      : x))
+  }, [sel])
+
+  // close-mesh: re-bake the selected mesh with hole-filling so open surfaces get capped
+  // and mass/volume become real (not estimated).
+  const onCloseMesh = useCallback(async () => {
+    if (!selected?.file) return
+    setBusy(true)
+    try {
+      const pap = await bake(selected.file, { cap: true, profile: settings.profile, extras: selected.extras })
       setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
     } finally { setBusy(false) }
   }, [selected, settings])
@@ -226,34 +249,26 @@ export default function App() {
     <div className="app">
       <IconDefs />
 
-      <div className="menubar">
-        <Brand />
-        <div className="sep" />
-        <div className="mfile">
-          <div className="mbtn"><Icon name="new" />New</div>
-          <div className="mbtn"><Icon name="open" />Open</div>
-          <label className="mbtn key">
-            <Icon name="import" />Import mesh
-            <input type="file" multiple accept=".obj,.glb,.gltf,.stl,.uasset,.bin,.png,.jpg,.jpeg,.webp,.ktx2"
-              style={{ display: 'none' }}
-              onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) onAddFiles(fs); e.currentTarget.value = '' }} />
-          </label>
-        </div>
-        <div className="proj">
-          <span className="dot" /><span className="mono">{wdf?.scene ? `${wdf.scene.name}.wdf` : 'untitled.wdf'}</span>
-          <span style={{ color: 'var(--ink4)' }}>·</span>{assets.length} assets
-        </div>
-      </div>
+      <Menubar
+        projectName={wdf?.scene ? `${wdf.scene.name}.wdf` : 'untitled.wdf'}
+        assetCount={assets.length}
+        onNew={startNew}
+        onOpenWdf={onOpenFile}
+        onImport={onAddFiles}
+      />
 
       <GateStack verdict={verdict} />
       {wdf?.scene && <LawsBand scene={wdf.scene} />}
 
       <div className="row">
-        <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
+        <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport}
+          onDelete={(id) => { setAssets((a) => a.filter((x) => x.id !== id)); setSel((s) => (s === id ? null : s)) }}
+          onUpdate={(id, patch) => setAssets((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)))} />
         <Viewport name={selected?.name ?? ''} file={selected?.file} extras={selected?.extras}
-          pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status} />
+          pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status}
+          onDropFiles={onAddFiles} />
         <Properties pap={selected?.pap ?? null} footer={inspector}
-          onConfirm={onConfirmMaterials} busy={busy} declared={selected?.wdf} />
+          onConfirm={onConfirmMaterials} onCloseMesh={onCloseMesh} onEditPap={onEditPap} busy={busy} declared={selected?.wdf} />
       </div>
 
       <div

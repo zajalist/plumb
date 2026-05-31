@@ -77,10 +77,44 @@ def _cortex_available() -> bool:
 
 @app.get("/health")
 def health() -> dict:
-    """Liveness + whether the real cortex is importable and Unreal convert is wired."""
+    """Liveness + whether cortex, Unreal convert, and the Gemini semantic bake are wired."""
+    from studio.semantics import gemini_status
     from studio.uasset import ue_status
 
-    return {"ok": True, "cortex": _cortex_available(), "ue": ue_status()}
+    return {"ok": True, "cortex": _cortex_available(), "ue": ue_status(), "gemini": gemini_status()}
+
+
+@app.post("/semantics")
+async def semantics(
+    asset_id: str = Form(""),
+    hint: str = Form(""),
+    images: list[UploadFile] = File(...),
+) -> dict:
+    """AI semantic bake: send viewport renders to Gemini → class / up / front /
+    per-region materials / affordances. Folds the inferred class into the stored PAP."""
+    from studio.semantics import gemini_status, semantic_bake
+
+    if not gemini_status()["available"]:
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini not configured — set GEMINI_API_KEY (free key at https://aistudio.google.com).",
+        )
+    imgs = [await im.read() for im in images][:4]
+    if not imgs:
+        raise HTTPException(status_code=422, detail="no render images provided")
+    try:
+        sem = semantic_bake(imgs, hint)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gemini error: {e}") from e
+
+    # fold the inferred class into the stored PAP so the rest of the app sees it.
+    cls = sem.get("class")
+    if cls and asset_id in _ASSETS:
+        try:
+            _ASSETS[asset_id].semantics.cls = str(cls)
+        except Exception:
+            pass
+    return sem
 
 
 def _maybe_decimate(path: str, target_faces: int) -> str:
@@ -112,6 +146,7 @@ async def bake(
     materials: str | None = Form(None),
     profile: str = Form("rigid_prop"),
     decimate: int | None = Form(None),
+    cap: bool = Form(False),
     extras: list[UploadFile] = File(default=[]),
 ) -> dict:
     """Run the real composition bake on an uploaded mesh and return its PAP + masks.
@@ -156,6 +191,22 @@ async def bake(
             if ex.filename:
                 with open(os.path.join(work, os.path.basename(ex.filename)), "wb") as f:
                     f.write(await ex.read())
+        # Sidecars are staged flat (by basename), but a .gltf may reference them with
+        # subfolders (textures/foo.jpg). Rewrite its buffer/image URIs to basenames so
+        # they resolve against the flat staging dir regardless of the original nesting.
+        if fn.lower().endswith(".gltf"):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    doc = json.load(f)
+                for coll in ("buffers", "images"):
+                    for item in doc.get(coll, []):
+                        uri = item.get("uri")
+                        if uri and not uri.startswith("data:"):
+                            item["uri"] = os.path.basename(uri.split("?")[0])
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(doc, f)
+            except Exception:
+                pass
 
     if decimate:
         path = _maybe_decimate(path, int(decimate))
@@ -163,7 +214,7 @@ async def bake(
     asset_id = fn.rsplit(".", 1)[0]
     part_materials = json.loads(materials) if materials else None
     try:
-        pap, parts = bake_asset_detailed(asset_id, path, part_materials=part_materials, profile=profile)
+        pap, parts = bake_asset_detailed(asset_id, path, part_materials=part_materials, profile=profile, cap=cap)
     except Exception as e:  # bad mesh / decomposition failure — surface, don't crash
         msg = str(e)
         if fn.lower().endswith(".gltf") and ("No such file" in msg or ".bin" in msg):
