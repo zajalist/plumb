@@ -20,8 +20,8 @@ import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, he
 import './App.css'
 
 export default function App() {
-  // launch flow: Splash → Stage (drop + bake) → Editor
-  const [screen, setScreen] = useState<'splash' | 'stage' | 'editor'>('splash')
+  // launch flow: Landing → Splash → Stage (drop + bake) → Editor
+  const [screen, setScreen] = useState<'landing' | 'splash' | 'stage' | 'editor'>('landing')
   const [recent, setRecent] = useState<RecentEntry[]>(() => getRecent())
   const [settings, setSettings] = useState<BakeSettings>({ profile: 'rigid_prop', simplify: false })
   const [ueAvailable, setUeAvailable] = useState(false)
@@ -29,6 +29,13 @@ export default function App() {
   const openProject = useCallback((name: string) => { setRecent(addRecent(name)); setScreen('editor') }, [])
 
   useEffect(() => { health().then((h) => setUeAvailable(!!h.ue?.available)).catch(() => {}) }, [])
+
+  // the static landing page (iframe) hands off here when "Run the studio" is clicked
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => { if (e.data === 'plumb:enter-studio') setScreen('splash') }
+    window.addEventListener('message', onMsg)
+    return () => window.removeEventListener('message', onMsg)
+  }, [])
 
   const [assets, setAssets] = useState<Asset[]>([])
   const [sel, setSel] = useState<string | null>(null)
@@ -280,6 +287,18 @@ export default function App() {
         onSweptDeg={articulated ? onDoorDeg : undefined}
         onValidate={onValidate} onRepair={onRepair} onCommit={onCommit} />
     : undefined
+
+  // Landing page (static, served from public/) — "Run the studio" posts a message
+  // that hands off to the Splash screen (the normal app start).
+  if (screen === 'landing') {
+    return (
+      <iframe
+        title="PLUMB"
+        src="/landing.html"
+        style={{ border: 0, width: '100vw', height: '100vh', display: 'block' }}
+      />
+    )
+  }
 
   if (screen === 'splash') {
     return (

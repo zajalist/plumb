@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>PLUMB — a spatial cortex for physically-grounded 3D worlds</title>
 <meta name="description" content="PLUMB sits between any agent and a 3D engine and validates every proposed change before it commits — returning not just no, but the exact number it failed by and the direction to fix it." />
-<link rel="icon" type="image/svg+xml" href="plumb.svg" />
+<link rel="icon" type="image/svg+xml" href="logo.svg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -265,7 +265,7 @@
 <nav id="nav">
   <div class="wrap">
     <a class="brand" href="#top" aria-label="PLUMB home">
-      <img class="mark" src="plumb.svg" alt="" />
+      <img class="mark" src="logo.svg" alt="" />
       <span class="word">PLUMB</span>
     </a>
     <div class="links">
@@ -273,7 +273,7 @@
       <a class="ghost" href="#loop">The loop</a>
       <a class="ghost" href="#uses">Use cases</a>
       <a class="ghost" href="#language">Language</a>
-      <a class="cta" href="#run">Run it ↗</a>
+      <a class="cta" href="#run" data-enter>Run it ↗</a>
     </div>
   </div>
 </nav>
@@ -283,13 +283,13 @@
   <div class="scrim"></div>
   <div class="grain"></div>
   <div class="wrap">
-    <img class="hero__mark" src="plumb.svg" alt="PLUMB aperture mark" width="64" height="64" />
+    <img class="hero__mark" src="logo.svg" alt="PLUMB aperture mark" width="64" height="64" />
     <span class="eyebrow label"><span class="tick"></span>Spatial cortex · grounding layer</span>
     <h1 class="tagline">The grounding layer between an agent and a <span class="em">3D world</span>.</h1>
     <p class="lede">AI is being handed the job of building 3D worlds, but it has no sense of physical reality, so scenes break the instant physics runs. PLUMB is the trust layer in the middle: it <b>validates every proposed change before it commits</b>, returning not just <i>no</i>, but the exact number it failed by and the direction to fix it.</p>
     <div class="herobtns">
       <a class="btn primary" href="#loop">See the loop <span class="arr">→</span></a>
-      <a class="btn ghost" href="#run">Run the studio <span class="arr">↗</span></a>
+      <a class="btn ghost" href="#run" data-enter>Run the studio <span class="arr">↗</span></a>
     </div>
 
     <div class="gateteaser" aria-hidden="true">
@@ -581,13 +581,8 @@
         <h2>Nothing commits until it hangs <span style="color:var(--sage)">true</span>.</h2>
         <p>A plumb line is the oldest tool for testing whether something hangs true under gravity. PLUMB does that for an agent's spatial decisions — propose, validate, repair, commit.</p>
         <div class="herobtns">
-          <a class="btn primary" href="#top">Back to top <span class="arr">↑</span></a>
+          <a class="btn primary" href="#run" data-enter>Run the studio <span class="arr">→</span></a>
           <a class="btn ghost" href="https://github.com/zajalist/plumb" target="_blank" rel="noopener">View the repo <span class="arr">↗</span></a>
-        </div>
-        <div class="runbox">
-          <span class="rl">Run the studio</span>
-          <code id="runcmd">npm --prefix studio run dev</code>
-          <span class="copy" id="copybtn">copy</span>
         </div>
       </div>
     </div>
@@ -596,7 +591,7 @@
 
 <footer>
   <div class="wrap">
-    <span class="brand"><img class="mark" src="plumb.svg" alt="" width="20" height="20"/><span class="word">PLUMB</span></span>
+    <span class="brand"><img class="mark" src="logo.svg" alt="" width="20" height="20"/><span class="word">PLUMB</span></span>
     <span class="mono" style="margin-left:4px">spatial cortex · weekend build</span>
     <span class="fl">
       <a href="#problem">Problem</a>
@@ -866,15 +861,14 @@
   btnReset.addEventListener('click', toTopple);
 })();
 
-/* ── copy run command ─────────────────────────────────────────────────────── */
+/* ── enter the studio: hand off from the landing to the React app ─────────── */
 (function(){
-  const btn = document.getElementById('copybtn');
-  const cmd = document.getElementById('runcmd');
-  if(!btn) return;
-  btn.addEventListener('click', async ()=>{
-    try{ await navigator.clipboard.writeText(cmd.textContent.trim()); btn.textContent='copied'; setTimeout(()=>btn.textContent='copy',1400); }
-    catch(e){ btn.textContent='⌘C'; }
-  });
+  function enterStudio(){
+    if (window.parent && window.parent !== window) window.parent.postMessage('plumb:enter-studio','*');
+    else window.location.href = '/';
+  }
+  document.querySelectorAll('[data-enter]').forEach((el)=>
+    el.addEventListener('click', (e)=>{ e.preventDefault(); enterStudio(); }));
 })();
 </script>
 </body>
