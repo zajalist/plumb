@@ -360,6 +360,72 @@ def commit(diff_json: dict) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Mask tools (design 2026-05-31) — agents author + compute semantic masks.
+# These share the on-disk mask store with the studio UI, so a mask added here
+# shows up in the studio on its next GET /masks (and vice-versa).
+# --------------------------------------------------------------------------- #
+@mcp.tool()
+def list_masks(asset_id: str) -> str:
+    """List the masks currently stored for an asset.
+
+    Returns
+    -------
+    JSON array of Mask objects.
+    """
+    from cortex.masks import store
+
+    return json.dumps([m.model_dump() for m in store.list_masks(asset_id)])
+
+
+@mcp.tool()
+def add_mask(asset_id: str, name: str, archetype: str, data: dict,
+             category: str = "custom") -> str:
+    """Author a custom mask onto an asset (source = "mcp").
+
+    ``archetype`` is one of categorical | scalar | vector | markers; ``data`` must match
+    that archetype's shape (categorical: ``{"regions":[...]}``; scalar:
+    ``{"per_part":{...},"range":[lo,hi]}``; vector: ``{"samples":[...]}`` or
+    ``{"field":"gravity"}``; markers: ``{"points":[...],"lines":[...],"axes":[...]}``).
+
+    Returns
+    -------
+    JSON of the stored Mask (raises on invalid data).
+    """
+    from cortex.masks.providers.custom import ingest
+
+    return ingest(asset_id, name, archetype, data, category=category).model_dump_json()
+
+
+@mcp.tool()
+def compute_mask(asset_id: str, provider_key: str) -> str:
+    """Run a server-side mask provider (e.g. a geometry mask) for an asset and store it.
+
+    Image-based providers (HF/Gemini) need rendered views and are not computable here;
+    use the studio's ``POST /masks/{asset_id}/compute`` for those.
+
+    Returns
+    -------
+    JSON of the stored Mask.
+    """
+    from cortex.masks import compute_for
+
+    return compute_for(asset_id, provider_key).model_dump_json()
+
+
+@mcp.tool()
+def remove_mask(asset_id: str, mask_id: str) -> str:
+    """Delete a mask from an asset's store.
+
+    Returns
+    -------
+    JSON ``true`` if a mask was removed, ``false`` otherwise.
+    """
+    from cortex.masks import store
+
+    return json.dumps(store.delete(asset_id, mask_id))
+
+
+# --------------------------------------------------------------------------- #
 # Entry point (stdio)
 # --------------------------------------------------------------------------- #
 if __name__ == "__main__":
