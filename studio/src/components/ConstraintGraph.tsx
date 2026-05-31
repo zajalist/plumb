@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ReactFlow,
   Background,
@@ -16,6 +16,7 @@ import {
   type Connection,
   type NodeProps,
   type OnSelectionChangeParams,
+  type FinalConnectionState,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
@@ -26,9 +27,18 @@ import {
   type NodeOp,
   type NodeResult,
   type PlumbData,
+  type PortType,
   type SceneState,
 } from '../lib/engine'
-import { DEF_BY_OP, DEFAULT_OP_BY_KIND, nextId, seedGraph, specToNode } from '../lib/catalog'
+import {
+  DEF_BY_OP,
+  DEFAULT_OP_BY_KIND,
+  OPS_BY_KIND,
+  nextId,
+  profileGraphFor,
+  seedGraph,
+  specToNode,
+} from '../lib/catalog'
 import type { GateName, Verdict } from '../api'
 import { STATUS_COLOR, STATUS_LABEL, PORT_COLOR } from '../lib/theme'
 import { canConnect, connect, type GetNodeData } from '../lib/connection'
@@ -154,7 +164,44 @@ const nodeTypes = {
 const SEED = seedGraph()
 
 /** A baked asset offered to Object nodes (the P1 sync list) + its baked facts (P2). */
-export type ObjectOption = { id: string; label: string; sub?: string; mass?: number; com?: number[] }
+export type ObjectOption = {
+  id: string
+  label: string
+  sub?: string
+  mass?: number
+  com?: number[]
+  /** Bake archetype (e.g. 'door') — drives profile auto-graphs. */
+  profile?: string
+}
+
+// ── Invalid-connection feedback ───────────────────────────────────────────────
+/** Law labels whose entry port accepts a given carried type (for the reject hint). */
+const lawsAccepting = (t: PortType): string[] =>
+  OPS_BY_KIND.law.filter((l) => l.accepts?.includes(t)).map((l) => l.label)
+
+/**
+ * Why a `src → tgt` wire was rejected, phrased as a fix. Returns null when the
+ * pair is actually compatible (so the caller can try the other drag direction).
+ * The type system stays strict — this only explains the block (SYNC: keep strict,
+ * improve feedback).
+ */
+function rejectHint(src?: PlumbData, tgt?: PlumbData): string | null {
+  if (!src || !tgt || src === tgt) return null
+  const provides = src.provides
+  if (!provides) return null
+  if (tgt.kind === 'verdict') {
+    if (tgt.accepts?.includes(provides)) return null
+    return `Verdict only accepts a Law’s output — wire ${src.label} into a Law first.`
+  }
+  const accepts = tgt.accepts
+  if (!accepts) return null // tgt takes no input; let the other direction explain
+  if (accepts.includes(provides)) return null // actually valid
+  const fixes = tgt.kind === 'law' ? lawsAccepting(provides) : []
+  const suggestion = fixes.length
+    ? ` Wire it into a Law that accepts ${provides} — try ${fixes.join(' or ')}.`
+    : ''
+  return `${src.label} outputs a ${provides}; ${tgt.label} accepts ${accepts.join('/')}.${suggestion}`
+}
 
 // P4: which backend gate drives each law / measure op, so a real Verdict lights
 // up the graph (spec §11 — the node editor as the "intent conscience").
@@ -168,12 +215,10 @@ const MEASURE_GATE: Partial<Record<NodeOp, GateName>> = {
 
 export default function ConstraintGraph({
   scene,
-  setBronzeX,
   objects = [],
   verdict = null,
 }: {
   scene: SceneState
-  setBronzeX: (x: number) => void
   objects?: ObjectOption[]
   verdict?: Verdict | null
 }) {
@@ -183,6 +228,20 @@ export default function ConstraintGraph({
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const { screenToFlowPosition, getNode } = useReactFlow()
   const { takeSnapshot, undo, redo } = useUndoRedo()
+
+  // Transient canvas hint shown when a wire is rejected (auto-dismisses).
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimer = useRef<number | null>(null)
+  const showToast = useCallback((msg: string) => {
+    setToast(msg)
+    if (toastTimer.current) window.clearTimeout(toastTimer.current)
+    toastTimer.current = window.setTimeout(() => setToast(null), 4000)
+  }, [])
+  useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
+
+  // Assets whose profile subgraph we've already auto-spawned — so we never
+  // duplicate, and never fight the user by re-adding after they delete it.
+  const materialized = useRef<Set<string>>(new Set())
 
   // Live recompute whenever structure, wiring, or the scene knob changes. When a
   // real backend Verdict is present, overlay its gate truth onto the matching
@@ -218,6 +277,30 @@ export default function ConstraintGraph({
     }
     return base
   }, [nodes, edges, scene, verdict])
+
+  // Profile auto-graphs: when a baked asset with a known profile (today: a door)
+  // first appears in the sync list, wire its "sentence" for the user. Otherwise
+  // the canvas stays empty (SYNC: empty unless a specific profile).
+  useEffect(() => {
+    const fresh = objects.filter(
+      (o) => profileGraphFor(o.profile) && !materialized.current.has(o.id),
+    )
+    if (fresh.length === 0) return
+    let row = materialized.current.size
+    const addNodes: Node[] = []
+    const addEdges: Edge[] = []
+    for (const o of fresh) {
+      const build = profileGraphFor(o.profile)!
+      const g = build(o.id, o.label, { x: 40, y: 40 + row * 200 })
+      addNodes.push(...g.nodes)
+      addEdges.push(...g.edges)
+      materialized.current.add(o.id)
+      row++
+    }
+    takeSnapshot()
+    setNodes((nds) => nds.concat(addNodes))
+    setEdges((eds) => eds.concat(addEdges))
+  }, [objects, setNodes, setEdges, takeSnapshot])
 
   // Track the whole node selection (box-select can pick many); a wire selection
   // is mutually exclusive with nodes — the inspector shows one or the other.
@@ -286,6 +369,20 @@ export default function ConstraintGraph({
     [setEdges, getData, takeSnapshot],
   )
 
+  // A wire dropped on an incompatible port makes no connection (strict typed
+  // ports). React Flow swallows it silently — so explain the block + the fix.
+  const onConnectEnd = useCallback(
+    (_: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+      if (state.isValid) return // valid drops are handled by onConnect
+      const from = (state.fromNode?.data ?? undefined) as PlumbData | undefined
+      const to = (state.toNode?.data ?? undefined) as PlumbData | undefined
+      if (!to) return // released on empty canvas — a cancel, not an error
+      const msg = rejectHint(from, to) ?? rejectHint(to, from)
+      if (msg) showToast(msg)
+    },
+    [showToast],
+  )
+
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
@@ -324,7 +421,7 @@ export default function ConstraintGraph({
                   ...(n.data as PlumbData),
                   op: def.op, label: def.label, sub: def.sub,
                   accepts: def.accepts, provides: def.provides,
-                  hard: def.hard, control: def.control,
+                  hard: def.hard, control: def.control, tol: def.tol,
                 },
               }
             : n,
@@ -340,6 +437,35 @@ export default function ConstraintGraph({
       )
     },
     [setNodes, setEdges, getData, takeSnapshot],
+  )
+
+  // Edit a law's tolerance (the inspector number field). Re-derives the node's
+  // sub-label from its comparator + unit so the canvas reflects the new threshold.
+  const onSetTol = useCallback(
+    (id: string, tol: number) => {
+      takeSnapshot()
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== id) return n
+          const d = n.data as PlumbData
+          const def = DEF_BY_OP[d.op]
+          const sub = def?.cmp && def?.tolUnit ? `${def.cmp} ${tol}${def.tolUnit}` : d.sub
+          return { ...n, data: { ...d, tol, sub } }
+        }),
+      )
+    },
+    [setNodes, takeSnapshot],
+  )
+
+  // Toggle a law between hard (gates the commit) and soft (warns only).
+  const onSetHard = useCallback(
+    (id: string, hard: boolean) => {
+      takeSnapshot()
+      setNodes((nds) =>
+        nds.map((n) => (n.id === id ? { ...n, data: { ...(n.data as PlumbData), hard } } : n)),
+      )
+    },
+    [setNodes, takeSnapshot],
   )
 
   // Bind an Object node to a real imported/baked asset (the P1 sync). The node
@@ -426,6 +552,7 @@ export default function ConstraintGraph({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onConnectEnd={onConnectEnd}
             onSelectionChange={onSelectionChange}
             onNodeDragStart={onNodeDragStart}
             onSelectionDragStart={onNodeDragStart}
@@ -448,6 +575,11 @@ export default function ConstraintGraph({
             <Background color="#2a2f36" gap={24} />
             <Controls showInteractive={false} />
           </ReactFlow>
+          {toast && (
+            <div className="ne-toast" role="status">
+              {toast}
+            </div>
+          )}
         </div>
         <Inspector
           node={selectedNode}
@@ -455,10 +587,10 @@ export default function ConstraintGraph({
           selected={selectedNodes}
           result={selectedId ? results.get(selectedId) : undefined}
           incoming={incoming}
-          bronzeX={scene.bronzeX}
-          setBronzeX={setBronzeX}
           objects={objects}
           onChangeOp={onChangeOp}
+          onSetTol={onSetTol}
+          onSetHard={onSetHard}
           onBindAsset={onBindAsset}
           onDelete={onDelete}
           onDeleteEdge={onDeleteEdge}

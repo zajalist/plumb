@@ -4,18 +4,18 @@ import { Menubar } from './Menubar'
 import { AssetsPanel, type Asset } from './AssetsPanel'
 import { Viewport } from './Viewport'
 import { Properties } from './Properties'
-import { Inspector } from './Inspector'
+import { PlacementTool } from './PlacementTool'
 import { GateStack } from './GateStack'
 import { Splash } from './Splash'
 import { Stage, type BakeSettings } from './Stage'
 import { LawsBand } from './LawsBand'
-import { getRecent, addRecent, type RecentEntry } from './recent'
+import { getRecent, addRecent, removeRecent, type RecentEntry } from './recent'
 import { ReactFlowProvider } from '@xyflow/react'
 import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
 import Palette from './components/Palette'
 import { INITIAL_SCENE, type SceneState } from './lib/engine'
 import { PROFILE_BASE } from './lib/bakeCatalog'
-import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health, swept,
+import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health,
   saveProject, openProjectData, fetchProjectFile, classifyCap,
   type Verdict, type WdfDoc, type PAP, type Swept, type CapPlane, type CapResult, type ProjectAsset } from './api'
 import './App.css'
@@ -38,7 +38,6 @@ export default function App() {
   const [settings, setSettings] = useState<BakeSettings>({ profile: 'rigid_prop', simplify: false })
   const [ueAvailable, setUeAvailable] = useState(false)
   const startNew = useCallback(() => setScreen('stage'), [])
-  const openProject = useCallback((name: string) => { setRecent(addRecent(name)); setScreen('editor') }, [])
 
   useEffect(() => { health().then((h) => setUeAvailable(!!h.ue?.available)).catch(() => {}) }, [])
 
@@ -46,49 +45,63 @@ export default function App() {
   const [sel, setSel] = useState<string | null>(null)
   const selected = assets.find((a) => a.id === sel) ?? null
 
+  const [projectName, setProjectName] = useState<string | null>(null)
   // opened .wdf scene (declared masks + laws), if any
   const [wdf, setWdf] = useState<WdfDoc | null>(null)
+  // Open a .wdf world document (declares assets + laws). This is an import, not a
+  // saved project — so it goes straight to the editor and is NOT tracked in Recent
+  // (Recent is for saved projects, which reopen by name via /project/open).
   const onOpenFile = useCallback(async (file: File) => {
-    if (file.name.toLowerCase().endsWith('.wdf')) {
-      try {
-        const doc = await openWdf(file)
-        setWdf(doc)
-        const declared = doc.vocabulary.assets.map((a, i): Asset => ({
-          id: `${a.name}-${i}`, name: a.name, status: 'declared', wdf: a,
-        }))
-        setAssets(declared)
-        setSel(declared[0]?.id ?? null)
-      } catch (e) {
-        console.error('open .wdf failed', e)
-      }
+    if (!file.name.toLowerCase().endsWith('.wdf')) {
+      alert(`"${file.name}" isn't a .wdf. Use New project to import and bake meshes.`)
+      return
     }
-    openProject(file.name)
-  }, [openProject])
+    try {
+      const doc = await openWdf(file)
+      setWdf(doc)
+      const declared = doc.vocabulary.assets.map((a, i): Asset => ({
+        id: `${a.name}-${i}`, name: a.name, status: 'declared', wdf: a,
+      }))
+      setAssets(declared)
+      setSel(declared[0]?.id ?? null)
+      setProjectName(file.name)
+      setScreen('editor')
+    } catch (e) {
+      console.error('open .wdf failed', e)
+      alert(`Could not open ${file.name}: ${e instanceof Error ? e.message : 'parse error'}`)
+    }
+  }, [])
 
   // placement + live verdict (M2)
   const [pos, setPos] = useState<number[]>([0, 0, 0])
   const [rot, setRot] = useState<number[]>([0, 0, 0])   // placement rotation (euler°), feeds the quat
   const [scale, setScale] = useState(1)                 // uniform placement scale, feeds the transform
   const [verdict, setVerdict] = useState<Verdict | null>(null)
+  // Stability support model. Free-standing (default) = the base co-moves with the
+  // body, so lateral placement doesn't topple it; off → the anchored pedestal model.
+  const [freeStanding, setFreeStanding] = useState(true)
   const [busy, setBusy] = useState(false)
   const [nodeH, setNodeH] = useState(300)
   // resizable docked columns (assets | viewport | properties)
   const [leftW, setLeftW] = useState(248)
   const [rightW, setRightW] = useState(296)
+  // toggleable panels (Window menu in the topbar). Viewport is always shown.
+  const [panels, setPanels] = useState({ assets: true, properties: true, gates: true, nodeEditor: true })
+  const togglePanel = useCallback((k: keyof typeof panels) => setPanels((p) => ({ ...p, [k]: !p[k] })), [])
 
-  // door swing articulation (WP-6): angle → real /swept wedge in the viewport
-  const [doorDeg, setDoorDeg] = useState(0)
+  // door swing articulation (WP-6): the swept wedge shown in the viewport. The control
+  // lives in the node editor (articulation is a graph concern), not the Properties pane.
   const [sweptGeo, setSweptGeo] = useState<Swept | null>(null)
 
-  // node-editor scene (Fara's editable constraint graph; its own live "knob")
-  const [scene, setScene] = useState<SceneState>(INITIAL_SCENE)
-  const setBronzeX = useCallback((x: number) => setScene((s) => ({ ...s, bronzeX: x })), [])
+  // node-editor scene (the constraint graph's static fallback context)
+  const [scene] = useState<SceneState>(INITIAL_SCENE)
 
   // Baked assets, as the node editor's selectable Objects (P1 sync). Import &
   // bake → the asset appears in every Object node's dropdown (SYNC.md).
   const objects = useMemo(
-    () =>
-      assets
+    () => {
+      const seen = new Set<string>()
+      return assets
         .filter((a) => a.status === 'ok' && a.pap)
         .map((a) => ({
           id: a.pap!.asset_id,
@@ -96,7 +109,10 @@ export default function App() {
           sub: `${a.pap!.semantics.cls} · ${a.pap!.physical.mass_kg.toFixed(1)}kg`,
           mass: a.pap!.physical.mass_kg,
           com: a.pap!.physical.com,
-        })),
+          profile: a.pap!.profile, // bake archetype → drives profile auto-graphs (e.g. 'door')
+        }))
+        .filter((o) => (seen.has(o.id) ? false : (seen.add(o.id), true))) // de-dupe colliding asset_ids
+    },
     [assets],
   )
 
@@ -143,7 +159,7 @@ export default function App() {
   }, [leftW, rightW])
 
   // reset the loop when the selected asset changes
-  useEffect(() => { setPos([0, 0, 0]); setRot([0, 0, 0]); setScale(1); setVerdict(null); setDoorDeg(0); setSweptGeo(null) }, [sel])
+  useEffect(() => { setPos([0, 0, 0]); setRot([0, 0, 0]); setScale(1); setVerdict(null); setSweptGeo(null) }, [sel])
 
   // shared bake options from the global settings (a per-mesh profile overrides .profile).
   // Profiles are rich presets; the bake gets the underlying engine archetype.
@@ -171,7 +187,8 @@ export default function App() {
   }, [bakeOpts])
 
   // turn dropped files into queued assets (meshes become assets; .bin/textures ride
-  // along as sidecars for any .gltf in the same drop). Each carries the default profile.
+  // along as sidecars for any .gltf in the same drop). Profile is left unset so an
+  // untouched mesh follows the live "Default profile"; picking one per mesh locks it.
   const makeAssets = useCallback((files: File[]): Asset[] => {
     const meshFiles = files.filter((f) => /\.(obj|glb|gltf|stl|uasset)$/i.test(f.name))
     const sidecars = files.filter((f) => !/\.(obj|glb|gltf|stl|uasset)$/i.test(f.name))
@@ -179,9 +196,8 @@ export default function App() {
       id: `${f.name.replace(/\.[^.]+$/, '')}-${Math.random().toString(36).slice(2, 6)}`,
       name: f.name, file: f, status: 'queued',
       extras: f.name.toLowerCase().endsWith('.gltf') ? sidecars : undefined,
-      profile: settings.profile,
     }))
-  }, [settings.profile])
+  }, [])
 
   // Bake a batch of queued assets (each at its own profile). .uasset files convert in
   // ONE Unreal boot, then bake from their tokens; meshes bake directly.
@@ -220,8 +236,9 @@ export default function App() {
 
   // Stage "Bake" button: bake every still-queued mesh at its chosen profile.
   const onBakeQueued = useCallback(async () => {
-    const queued = assets.filter((a) => a.status === 'queued' && a.file)
-    if (queued.length) await bakeBatch(queued)
+    // bake everything not yet baked: freshly queued AND previously-errored (retry)
+    const pending = assets.filter((a) => (a.status === 'queued' || a.status === 'error') && a.file)
+    if (pending.length) await bakeBatch(pending)
   }, [assets, bakeBatch])
 
   // Editor contexts (viewport drop, menubar/library import): add AND bake immediately.
@@ -233,7 +250,6 @@ export default function App() {
     await bakeBatch(added)
   }, [makeAssets, bakeBatch])
 
-  const onImport = useCallback((file: File) => { void onAddFiles([file]) }, [onAddFiles])
 
   const objId = selected?.pap?.asset_id ?? null
 
@@ -266,8 +282,8 @@ export default function App() {
   const onValidate = useCallback(async () => {
     if (!objId) return
     setBusy(true)
-    try { setVerdict(await validate(objId, pos, quat(rot), scaleVec())) } finally { setBusy(false) }
-  }, [objId, pos, rot, quat, scaleVec])
+    try { setVerdict(await validate(objId, pos, quat(rot), scaleVec(), freeStanding)) } finally { setBusy(false) }
+  }, [objId, pos, rot, quat, scaleVec, freeStanding])
 
   const onRepair = useCallback(async () => {
     if (!objId) return
@@ -276,9 +292,9 @@ export default function App() {
       const tf = await repair(objId, pos, quat(rot), scaleVec())
       const rounded = tf.pos.map((v) => Math.round(v * 1000) / 1000) // mm precision, no e-notation
       setPos(rounded)
-      setVerdict(await validate(objId, rounded, tf.quat, scaleVec()))
+      setVerdict(await validate(objId, rounded, tf.quat, scaleVec(), freeStanding))
     } finally { setBusy(false) }
-  }, [objId, pos, rot, quat, scaleVec])
+  }, [objId, pos, rot, quat, scaleVec, freeStanding])
 
   const onCommit = useCallback(async () => {
     if (!objId) return
@@ -286,23 +302,16 @@ export default function App() {
     try { await commit(objId, pos, quat(rot), scaleVec()) } finally { setBusy(false) }
   }, [objId, pos, rot, quat, scaleVec])
 
-  // Articulation (WP-6): set the door swing angle → fetch the real swept wedge.
-  const onDoorDeg = useCallback(async (deg: number) => {
-    setDoorDeg(deg)
-    if (!objId || deg <= 0) { setSweptGeo(null); return }
-    try { setSweptGeo(await swept(objId, deg)) } catch { setSweptGeo(null) }
-  }, [objId])
-
   // material-confirm loop: re-bake the selected mesh with the confirmed per-part
   // materials (now they drive physics) and lock them into the PAP.
   const onConfirmMaterials = useCallback(async (materials: Record<string, string>) => {
     if (!selected?.file) return
     setBusy(true)
     try {
-      const pap = await bake(selected.file, { materials, profile: settings.profile, extras: selected.extras })
+      const pap = await bake(selected.file, { materials, ...bakeOpts(selected.profile), extras: selected.extras })
       setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
     } finally { setBusy(false) }
-  }, [selected, settings])
+  }, [selected, bakeOpts])
 
   // Manual override of baked physics (mass / volume / CoM). Mutates the selected
   // asset's PAP so the viewport (CoM marker, plumb, force view) updates live.
@@ -331,29 +340,28 @@ export default function App() {
     const before = selected.pap
     setBusy(true)
     try {
-      const pap = await bake(selected.file, { capPlane: plane, profile: settings.profile, extras: selected.extras })
+      const pap = await bake(selected.file, { capPlane: plane, profile: bakeOpts(selected.profile).profile, extras: selected.extras })
       setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
       setCapResult(classifyCap(before, pap, 'manual'))
     } catch (e) {
       setCapResult(errResult(before, 'manual', e))
     } finally { setBusy(false); setCapping(false) }
-  }, [selected, settings])
+  }, [selected, bakeOpts])
   const onAutoFill = useCallback(async () => {
     if (!selected?.file) return
     const before = selected.pap
     setCapResult(null); setCapping(false); setBusy(true)
     try {
-      const pap = await bake(selected.file, { cap: true, profile: settings.profile, extras: selected.extras })
+      const pap = await bake(selected.file, { cap: true, profile: bakeOpts(selected.profile).profile, extras: selected.extras })
       setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
       setCapResult(classifyCap(before, pap, 'auto'))
     } catch (e) {
       setCapResult(errResult(before, 'auto', e))
     } finally { setBusy(false) }
-  }, [selected, settings])
+  }, [selected, bakeOpts])
   useEffect(() => { setCapping(false); setCapResult(null) }, [sel])  // reset cap state on asset change
 
   // Project save/open: bundle the .wdf semantics AND the real model files in one place.
-  const [projectName, setProjectName] = useState<string | null>(null)
   const onSaveProject = useCallback(async (name: string) => {
     const records: ProjectAsset[] = []
     const files: { key: string; file: File }[] = []
@@ -361,9 +369,10 @@ export default function App() {
       if (!a.file) continue   // declared-only assets (from a .wdf) carry no model file
       const all = [a.file, ...(a.extras ?? [])]
       records.push({ id: a.id, name: a.name, main: a.file.name, files: all.map((f) => f.name),
-        profile: a.pap?.profile, masks: a.pap?.parts, pap: a.pap })
+        profile: a.profile ?? a.pap?.profile, masks: a.pap?.parts, pap: a.pap })
       for (const f of all) files.push({ key: `${a.id}__${f.name}`, file: f })
     }
+    if (!records.length) { alert('Nothing to save yet. Import and bake a mesh first.'); return }
     await saveProject(name, records, files)
     setProjectName(name)
     setRecent(addRecent(name))
@@ -376,8 +385,11 @@ export default function App() {
       const main = fetched.find((f) => f.name === rec.main) ?? fetched[0]
       const extras = fetched.filter((f) => f !== main)
       restored.push({ id: rec.id, name: rec.name, file: main, extras, pap: rec.pap,
-        status: rec.pap ? 'ok' : 'queued' })
+        profile: rec.profile, status: rec.pap ? 'ok' : 'queued' })
     }
+    setWdf(null)
+    setVerdict(null); setCapResult(null); setSweptGeo(null)
+    setPos([0, 0, 0]); setRot([0, 0, 0]); setScale(1)
     setAssets(restored)
     setSel(restored[0]?.id ?? null)
     setProjectName(name)
@@ -385,19 +397,25 @@ export default function App() {
     setScreen('editor')
   }, [])
 
+  // Open a Recent entry: actually load the saved project. If it's gone (deleted /
+  // different machine), drop the stale entry instead of failing silently.
+  const openRecent = useCallback(async (name: string) => {
+    try { await onOpenProject(name) }
+    catch (e) {
+      console.error('open recent failed', e)
+      setRecent(removeRecent(name))
+      alert(`Couldn't open "${name}". It may have been deleted.`)
+    }
+  }, [onOpenProject])
+
   const canPlace = selected?.status === 'ok' && !!objId
-  // door articulation (WP-6): a slim control rendered as the Properties footer — placement
-  // itself lives in the GateStack now, so the Inspector is door-swing only.
-  const inspector = selected?.status === 'ok' && objId
-    ? <Inspector sweptDeg={doorDeg} onSweptDeg={onDoorDeg} />
-    : undefined
 
   if (screen === 'splash') {
     return (
       <>
         <IconDefs />
         <Splash recent={recent} onNew={startNew}
-          onOpen={onOpenFile} onOpenRecent={(e) => openProject(e.name)} />
+          onOpen={onOpenFile} onOpenRecent={(e) => openRecent(e.name)} />
       </>
     )
   }
@@ -426,49 +444,65 @@ export default function App() {
         onOpenWdf={onOpenFile}
         onImport={onAddFiles}
         onSaveProject={onSaveProject}
-        onOpenProject={onOpenProject}
+        onOpenProject={openRecent}
+        panels={panels}
+        onTogglePanel={togglePanel}
       />
 
-      <GateStack verdict={verdict}
-        {...(canPlace ? { pos, setPos, rot, setRot, busy, onValidate, onRepair, onCommit } : {})} />
+      {panels.gates && (
+        <GateStack verdict={verdict}
+          {...(canPlace ? { pos, setPos, rot, setRot, busy, onValidate, onRepair, onCommit, freeStanding, setFreeStanding } : {})} />
+      )}
       {wdf?.scene && <LawsBand scene={wdf.scene} />}
 
       <div className="row" style={{ '--aw': `${leftW}px`, '--pw': `${rightW}px` } as React.CSSProperties}>
-        <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport}
-          onDelete={(id) => { setAssets((a) => a.filter((x) => x.id !== id)); setSel((s) => (s === id ? null : s)) }}
-          onUpdate={(id, patch) => setAssets((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)))} />
-        <div className="col-resize" onPointerDown={startColResize('l')} role="separator" aria-orientation="vertical" title="Drag to resize" />
+        {panels.assets && (
+          <>
+            <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onAddFiles}
+              onDelete={(id) => { setAssets((a) => a.filter((x) => x.id !== id)); setSel((s) => (s === id ? null : s)) }}
+              onUpdate={(id, patch) => setAssets((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)))} />
+            <div className="col-resize" onPointerDown={startColResize('l')} role="separator" aria-orientation="vertical" title="Drag to resize" />
+          </>
+        )}
         <Viewport name={selected?.name ?? ''} file={selected?.file} extras={selected?.extras}
           pap={selected?.pap ?? null} pos={pos} rot={rot} scale={scale} verdict={verdict} status={selected?.status}
           swept={sweptGeo} onDropFiles={onAddFiles} capping={capping} onApplyCap={onApplyCap}
           onExitCap={() => setCapping(false)} busy={busy}
           capResult={capResult} onCapAgain={onStartCap} onDismissCap={() => setCapResult(null)} />
-        <div className="col-resize" onPointerDown={startColResize('r')} role="separator" aria-orientation="vertical" title="Drag to resize" />
-        <Properties pap={selected?.pap ?? null} footer={inspector}
-          onConfirm={onConfirmMaterials} onCapOpenings={onStartCap} onAutoFill={onAutoFill} capping={capping}
-          onEditPap={onEditPap} busy={busy} declared={selected?.wdf}
-          {...(canPlace ? { scale, onScale: setScale } : {})} />
+        {panels.properties && (
+          <>
+            <div className="col-resize" onPointerDown={startColResize('r')} role="separator" aria-orientation="vertical" title="Drag to resize" />
+            <Properties pap={selected?.pap ?? null}
+              onConfirm={onConfirmMaterials} onCapOpenings={onStartCap} onAutoFill={onAutoFill} capping={capping}
+              onEditPap={onEditPap} busy={busy} declared={selected?.wdf}
+              footer={selected?.pap ? <PlacementTool assetId={selected.pap.asset_id} obb={selected.pap.geometry.obb} /> : undefined}
+              {...(canPlace ? { scale, onScale: setScale } : {})} />
+          </>
+        )}
       </div>
 
-      <div
-        className="resize-handle"
-        onPointerDown={startResize}
-        role="separator"
-        aria-orientation="horizontal"
-        title="Drag to resize the node editor"
-      />
-
-      <div className="nodeeditor" style={{ height: nodeH }}>
-        <header>
-          <Icon name="reach" /><span className="t">Node editor</span>
-        </header>
-        <div className="ne">
-          <ReactFlowProvider>
-            <Palette />
-            <ConstraintGraph scene={scene} setBronzeX={setBronzeX} objects={objects} verdict={verdict} />
-          </ReactFlowProvider>
-        </div>
-      </div>
+      {panels.nodeEditor && (
+        <>
+          <div
+            className="resize-handle"
+            onPointerDown={startResize}
+            role="separator"
+            aria-orientation="horizontal"
+            title="Drag to resize the node editor"
+          />
+          <div className="nodeeditor" style={{ height: nodeH }}>
+            <header>
+              <Icon name="reach" /><span className="t">Node editor</span>
+            </header>
+            <div className="ne">
+              <ReactFlowProvider>
+                <Palette />
+                <ConstraintGraph scene={scene} objects={objects} verdict={verdict} />
+              </ReactFlowProvider>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

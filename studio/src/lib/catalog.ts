@@ -14,12 +14,13 @@ import {
   cm,
   pathWidth,
   stabilityMargin,
-  stableStatus,
   sweptClear,
   type EvalContext,
   type EvalOutput,
+  type GateStatus,
   type NodeKind,
   type NodeOp,
+  type PlumbData,
   type PortType,
 } from './engine'
 
@@ -32,20 +33,25 @@ export type NodeDef = {
   provides?: PortType
   hard?: boolean
   control?: 'bronzeX'
+  /** Default editable threshold (in `tolUnit`) for laws that have one. */
+  tol?: number
+  /** Display unit of the threshold, e.g. 'cm' or '°'. */
+  tolUnit?: string
+  /** Comparator shown in the node sub-label. */
+  cmp?: '≥' | '≤' | '=='
   evaluate?: (ctx: EvalContext) => EvalOutput
 }
 
+/** A law's pass/fail, honouring its hard/soft setting (soft failures warn). */
+const lawStatus = (pass: boolean, data: PlumbData): GateStatus =>
+  pass ? 'pass' : data.hard === false ? 'soft' : 'fail'
+
 // ── Every node type, defined once ────────────────────────────────────────────
 export const NODE_DEFS: NodeDef[] = [
-  // Assets (nouns). The generic `object` is the abstract default; binding it to a
-  // real imported asset is the P1 sync. The named demo assets keep the Gallery
-  // beat (bronze_figure's knob is the scene's live value).
+  // Asset (noun). Only the generic `object` is built in; binding it to a real
+  // imported/baked asset is the P1 sync. The canvas starts empty — there are no
+  // seeded demo nodes anymore.
   { op: 'object', kind: 'asset', label: 'object', sub: 'unbound', provides: 'object', evaluate: () => ({ value: 0 }) },
-  { op: 'bronze_figure', kind: 'asset', label: 'bronze_figure_03', sub: 'top-heavy', provides: 'object', control: 'bronzeX', evaluate: ({ scene }) => ({ value: scene.bronzeX }) },
-  { op: 'oak_door', kind: 'asset', label: 'oak_door', sub: 'articulated · swept', provides: 'object', evaluate: () => ({ value: 0 }) },
-  { op: 'glass_vase', kind: 'asset', label: 'glass_vase', sub: 'fragile · hollow', provides: 'object', evaluate: () => ({ value: 0 }) },
-  { op: 'pedestal', kind: 'asset', label: 'pedestal', sub: 'onSurface', provides: 'object', evaluate: () => ({ value: 0 }) },
-  { op: 'walkway', kind: 'asset', label: 'walkway', sub: 'navmesh r=0.45m', provides: 'object', evaluate: () => ({ value: 0 }) },
 
   // Measures — read the world; compute once, hand the value downstream.
   {
@@ -84,50 +90,56 @@ export const NODE_DEFS: NodeDef[] = [
     },
   },
 
-  // Laws — assert on the value flowing in from the wired measure.
+  // Laws — assert on the value flowing in from the wired measure. Each carries an
+  // editable threshold (`tol`, in `tolUnit`) the inspector exposes; `evaluate`
+  // reads `data.tol` and falls back to the default here.
   {
     op: 'stable', kind: 'law', label: 'stable', sub: '≥ 2cm', accepts: ['scalar'], provides: 'verdict', hard: true,
-    evaluate: ({ inputs }) => {
+    tol: 2, tolUnit: 'cm', cmp: '≥',
+    evaluate: ({ inputs, data }) => {
       const m = asNum(inputs[0])
       if (m === undefined) return { status: 'idle' }
-      const s = stableStatus(m)
-      return {
-        status: s,
-        headline: cm(m),
-        detail: s === 'pass' ? `CoM ${(m * 100).toFixed(1)}cm inside polygon` : `CoM ${(-m * 100).toFixed(1)}cm outside polygon`,
-      }
+      const tol = data.tol ?? 2
+      return { status: lawStatus(m * 100 >= tol, data), headline: cm(m), detail: `${(m * 100).toFixed(1)} cm · need ≥ ${tol} cm` }
     },
   },
   {
-    op: 'noClip', kind: 'law', label: 'no-clip', sub: '≥ 0', accepts: ['scalar'], provides: 'verdict', hard: true,
-    evaluate: ({ inputs }) => {
+    op: 'noClip', kind: 'law', label: 'no-clip', sub: '≥ 0cm', accepts: ['scalar'], provides: 'verdict', hard: true,
+    tol: 0, tolUnit: 'cm', cmp: '≥',
+    evaluate: ({ inputs, data }) => {
       const c = asNum(inputs[0])
       if (c === undefined) return { status: 'idle' }
-      return { status: c >= 0 ? 'pass' : 'fail', headline: cm(c) }
+      const tol = data.tol ?? 0
+      return { status: lawStatus(c * 100 >= tol, data), headline: cm(c), detail: `${(c * 100).toFixed(1)} cm · need ≥ ${tol} cm` }
     },
   },
   {
     op: 'facing', kind: 'law', label: 'facing', sub: '≤ 8°', accepts: ['scalar'], provides: 'verdict', hard: false,
-    evaluate: ({ inputs }) => {
+    tol: 8, tolUnit: '°', cmp: '≤',
+    evaluate: ({ inputs, data }) => {
       const a = asNum(inputs[0])
       if (a === undefined) return { status: 'idle' }
-      return { status: a <= 8 ? 'pass' : 'soft', headline: `${a.toFixed(0)}°` }
+      const tol = data.tol ?? 8
+      return { status: lawStatus(a <= tol, data), headline: `${a.toFixed(0)}°`, detail: `${a.toFixed(0)}° · need ≤ ${tol}°` }
     },
   },
   {
     op: 'doorClear', kind: 'law', label: 'door-clear', sub: '== true', accepts: ['bool'], provides: 'verdict', hard: true,
-    evaluate: ({ inputs }) => {
+    cmp: '==',
+    evaluate: ({ inputs, data }) => {
       const b = inputs[0]
       if (typeof b !== 'boolean') return { status: 'idle' }
-      return { status: b ? 'pass' : 'fail', headline: b ? '✓' : '✗' }
+      return { status: lawStatus(b, data), headline: b ? '✓' : '✗' }
     },
   },
   {
     op: 'walkwayClear', kind: 'law', label: 'walkway', sub: '≥ 90cm', accepts: ['scalar'], provides: 'verdict', hard: true,
-    evaluate: ({ inputs }) => {
+    tol: 90, tolUnit: 'cm', cmp: '≥',
+    evaluate: ({ inputs, data }) => {
       const w = asNum(inputs[0])
       if (w === undefined) return { status: 'idle' }
-      return { status: w >= 0.9 ? 'pass' : 'fail', headline: `${(w * 100).toFixed(0)} cm` }
+      const tol = data.tol ?? 90
+      return { status: lawStatus(w * 100 >= tol, data), headline: `${(w * 100).toFixed(0)} cm`, detail: `${(w * 100).toFixed(0)} cm · need ≥ ${tol} cm` }
     },
   },
 
@@ -203,6 +215,7 @@ export function specToNode(def: NodeDef, id: string, position: { x: number; y: n
       provides: def.provides,
       hard: def.hard,
       control: def.control,
+      tol: def.tol,
     },
   }
 }
@@ -210,52 +223,62 @@ export function specToNode(def: NodeDef, id: string, position: { x: number; y: n
 let _seq = 0
 export const nextId = (op: string) => `${op}-${++_seq}`
 
-// ── The default Gallery sentence (seed) ──────────────────────────────────────
-const COL = { asset: 0, measure: 280, law: 580, verdict: 880 }
-
+// ── The default graph (seed) ─────────────────────────────────────────────────
+// A new project opens to a blank canvas. Nodes arrive either by the user dragging
+// from the palette, or auto-spawned for a known asset profile (see PROFILE_GRAPHS).
 export function seedGraph(): { nodes: Node[]; edges: Edge[] } {
-  const n = (op: NodeOp, x: number, y: number): Node => specToNode(DEF_BY_OP[op], op, { x, y })
+  return { nodes: [], edges: [] }
+}
 
-  const nodes: Node[] = [
-    n('bronze_figure', COL.asset, 40),
-    n('oak_door', COL.asset, 160),
-    n('walkway', COL.asset, 280),
+// ── Profile auto-graphs ──────────────────────────────────────────────────────
+// Some baked assets have knowable behaviour, so the editor wires their "sentence"
+// for you. Today only a door (articulated → swept volume) auto-spawns; the
+// registry shape makes adding tree/shelf/etc. a small change later.
 
-    n('comOverFootprint', COL.measure, 30),
-    n('clearance', COL.measure, 120),
-    n('angleToFront', COL.measure, 210),
-    n('sweptClear', COL.measure, 300),
-    n('pathWidth', COL.measure, 390),
+/** True when a baked asset's profile should auto-spawn a constraint subgraph. */
+export const DOOR_PROFILES: ReadonlySet<string> = new Set(['door'])
+export const profileGraphFor = (profile?: string): ProfileGraphBuilder | undefined =>
+  profile && DOOR_PROFILES.has(profile) ? PROFILE_GRAPHS.door : undefined
 
-    n('stable', COL.law, 30),
-    n('noClip', COL.law, 120),
-    n('facing', COL.law, 210),
-    n('doorClear', COL.law, 300),
-    n('walkwayClear', COL.law, 390),
+/** Builds a pre-wired subgraph for an asset, anchored at `origin`. */
+export type ProfileGraphBuilder = (
+  assetId: string,
+  label: string,
+  origin: { x: number; y: number },
+) => { nodes: Node[]; edges: Edge[] }
 
-    n('verdict', COL.verdict, 200),
-  ]
+/** An Object node already bound to a real imported/baked asset. */
+function boundObjectNode(assetId: string, label: string, id: string, position: { x: number; y: number }): Node {
+  return {
+    id,
+    type: 'asset',
+    position,
+    data: { kind: 'asset', op: 'object', label, assetId, provides: 'object' },
+  }
+}
 
-  const e = (s: string, t: string): Edge => ({ id: `${s}->${t}`, source: s, target: t, animated: true })
-  const edges: Edge[] = [
-    e('bronze_figure', 'comOverFootprint'),
-    e('bronze_figure', 'clearance'),
-    e('bronze_figure', 'angleToFront'),
-    e('oak_door', 'sweptClear'),
-    e('walkway', 'pathWidth'),
+export const PROFILE_GRAPHS: Record<string, ProfileGraphBuilder> = {
+  // door: [Object(door)] → keep_clear(swept) → door-clear → Verdict
+  door: (assetId, label, origin) => {
+    const sfx = `${assetId}-${++_seq}`
+    const objId = `object-${sfx}`
+    const measureId = `sweptClear-${sfx}`
+    const lawId = `doorClear-${sfx}`
+    const verdictId = `verdict-${sfx}`
+    const at = (dx: number, dy: number) => ({ x: origin.x + dx, y: origin.y + dy })
 
-    e('comOverFootprint', 'stable'),
-    e('clearance', 'noClip'),
-    e('angleToFront', 'facing'),
-    e('sweptClear', 'doorClear'),
-    e('pathWidth', 'walkwayClear'),
-
-    e('stable', 'verdict'),
-    e('noClip', 'verdict'),
-    e('facing', 'verdict'),
-    e('doorClear', 'verdict'),
-    e('walkwayClear', 'verdict'),
-  ]
-
-  return { nodes, edges }
+    const nodes: Node[] = [
+      boundObjectNode(assetId, label, objId, at(0, 0)),
+      specToNode(DEF_BY_OP.sweptClear, measureId, at(280, 0)),
+      specToNode(DEF_BY_OP.doorClear, lawId, at(580, 0)),
+      specToNode(DEF_BY_OP.verdict, verdictId, at(880, 0)),
+    ]
+    const e = (s: string, t: string): Edge => ({ id: `${s}->${t}`, source: s, target: t, animated: true })
+    const edges: Edge[] = [
+      e(objId, measureId),
+      e(measureId, lawId),
+      e(lawId, verdictId),
+    ]
+    return { nodes, edges }
+  },
 }

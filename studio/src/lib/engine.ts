@@ -27,7 +27,6 @@ export type NodeKind = 'asset' | 'measure' | 'law' | 'field' | 'verdict'
 /** Which concrete asset/measure/law/field a node is. */
 export type NodeOp =
   | 'object'
-  | 'bronze_figure' | 'oak_door' | 'glass_vase' | 'pedestal' | 'walkway'
   | 'comOverFootprint' | 'clearance' | 'angleToFront' | 'sweptClear' | 'pathWidth'
   | 'stable' | 'noClip' | 'facing' | 'doorClear' | 'walkwayClear'
   | 'gravity' | 'season'
@@ -45,6 +44,8 @@ export type PlumbData = {
   provides?: PortType
   hard?: boolean
   control?: 'bronzeX'
+  /** Editable law threshold, in the law's display unit (e.g. cm or °). */
+  tol?: number
   /** When an Object node is bound to a real imported/baked asset (P1 sync). */
   assetId?: string
 }

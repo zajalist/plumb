@@ -49,6 +49,26 @@ export async function health(): Promise<Health> {
   return r.json()
 }
 
+// --- placement distributions (learn placement on tagged surfaces by example) ---
+export type PlacementExample = { tag: string; orientation: string; normal_offset: number; tilt_deg: number; yaw_deg: number; lateral: number[]; noise?: { amp: number; freq: number; seed: number } | null }
+export type PlacementDist = { tag: string; n: number; orientation: string; mean: { normal_offset: number; tilt_deg: number; yaw_deg: number; lateral: number[] }; spread: { normal_offset: number; tilt_deg: number; yaw_deg: number; lateral: number[] } }
+export async function getPlacements(assetId: string): Promise<{ examples: PlacementExample[]; tags: Record<string, number> }> {
+  const r = await fetch(`${BASE}/placement/${encodeURIComponent(assetId)}`)
+  if (!r.ok) return { examples: [], tags: {} }
+  return r.json()
+}
+export async function addPlacement(assetId: string, ex: Omit<PlacementExample, 'yaw_deg'> & { yaw_deg?: number }): Promise<{ tags: Record<string, number> }> {
+  const r = await fetch(`${BASE}/placement/${encodeURIComponent(assetId)}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ yaw_deg: 0, ...ex }),
+  })
+  if (!r.ok) throw new Error('capture failed')
+  return r.json()
+}
+export async function clearPlacements(assetId: string, tag?: string): Promise<void> {
+  await fetch(`${BASE}/placement/${encodeURIComponent(assetId)}${tag ? `?tag=${encodeURIComponent(tag)}` : ''}`, { method: 'DELETE' })
+}
+
 // A manual cap plane (origin/normal in the mesh's native frame, half = lid half-extent,
 // depth = slab tolerance) sent by the viewport's cap tool to close a specific opening.
 export type CapPlane = { origin: number[]; normal: number[]; half: number; depth: number }
@@ -195,8 +215,10 @@ export async function openWdf(file: File): Promise<WdfDoc> {
 }
 
 const DEFAULT_SCALE = [1, 1, 1]
-export const validate = (object: string, pos: number[], quat = DEFAULT_QUAT, scale = DEFAULT_SCALE) =>
-  post<Verdict>('/validate', { object, pos, quat, scale })
+// `freeStanding` (default) runs the free-standing stability model so an object
+// resting on the floor isn't toppled by lateral placement — only by tilt/slope.
+export const validate = (object: string, pos: number[], quat = DEFAULT_QUAT, scale = DEFAULT_SCALE, freeStanding = true) =>
+  post<Verdict>('/validate', { object, pos, quat, scale, free_standing: freeStanding })
 export const repair = (object: string, pos: number[], quat = DEFAULT_QUAT, scale = DEFAULT_SCALE) =>
   post<Tf>('/repair', { object, pos, quat, scale })
 export const commit = (object: string, pos: number[], quat = DEFAULT_QUAT, scale = DEFAULT_SCALE) =>

@@ -1,7 +1,7 @@
 import type { Node } from '@xyflow/react'
-import { BRONZE_X_MIN, BRONZE_X_MAX, type NodeKind, type NodeOp, type NodeResult, type PlumbData, type PortType } from '../lib/engine'
+import { type NodeKind, type NodeOp, type NodeResult, type PlumbData, type PortType } from '../lib/engine'
 import { STATUS_COLOR, PORT_COLOR, KIND_LABEL } from '../lib/theme'
-import { OPS_BY_KIND } from '../lib/catalog'
+import { DEF_BY_OP, OPS_BY_KIND } from '../lib/catalog'
 
 /** A selected wire, resolved to the endpoints + the port type it carries. */
 export type EdgeInfo = {
@@ -109,10 +109,10 @@ export default function Inspector({
   selected,
   result,
   incoming,
-  bronzeX,
-  setBronzeX,
   objects = [],
   onChangeOp,
+  onSetTol,
+  onSetHard,
   onBindAsset,
   onDelete,
   onDeleteEdge,
@@ -123,10 +123,10 @@ export default function Inspector({
   selected?: SelectedNode[]
   result?: NodeResult
   incoming: { label: string; type?: PortType }[]
-  bronzeX: number
-  setBronzeX: (x: number) => void
   objects?: { id: string; label: string; sub?: string; mass?: number; com?: number[] }[]
   onChangeOp: (id: string, op: NodeOp) => void
+  onSetTol: (id: string, tol: number) => void
+  onSetHard: (id: string, hard: boolean) => void
   onBindAsset: (id: string, assetId: string, label: string, sub?: string) => void
   onDelete: (id: string) => void
   onDeleteEdge: (id: string) => void
@@ -176,11 +176,7 @@ export default function Inspector({
                 ))}
               </optgroup>
             )}
-            <optgroup label="Demo assets">
-              {OPS_BY_KIND.asset.map((o) => (
-                <option key={o.op} value={`op:${o.op}`}>{o.label}</option>
-              ))}
-            </optgroup>
+            <option value="op:object">— unbound —</option>
           </select>
           {objects.length === 0 && (
             <div className="inspector-detail">Import &amp; bake a mesh to bind a real object.</div>
@@ -258,18 +254,43 @@ export default function Inspector({
       {(d.kind === 'law' || d.kind === 'measure' || d.kind === 'verdict') && (
         <div className="inspector-section">
           <div className="inspector-h">Evaluation</div>
-          {d.kind === 'law' && (
-            <div className="inspector-row">
-              <span className="inspector-key">type</span>
-              <span>{d.hard === false ? 'soft (warns)' : 'hard (gates commit)'}</span>
-            </div>
-          )}
-          {d.sub && d.kind === 'law' && (
-            <div className="inspector-row">
-              <span className="inspector-key">tolerance</span>
-              <span>{d.sub}</span>
-            </div>
-          )}
+          {d.kind === 'law' && (() => {
+            const def = DEF_BY_OP[d.op]
+            return (
+              <>
+                <div className="inspector-row">
+                  <span className="inspector-key">enforce</span>
+                  <select
+                    className="inspector-select inspector-select-inline"
+                    value={d.hard === false ? 'soft' : 'hard'}
+                    onChange={(e) => onSetHard(node.id, e.target.value === 'hard')}
+                  >
+                    <option value="hard">hard · gates commit</option>
+                    <option value="soft">soft · warns only</option>
+                  </select>
+                </div>
+                {def?.tolUnit && (
+                  <div className="inspector-row">
+                    <span className="inspector-key">tolerance</span>
+                    <span className="tol-edit">
+                      <span className="tol-cmp">{def.cmp}</span>
+                      <input
+                        className="tol-input"
+                        type="number"
+                        step={def.tolUnit === '°' ? 1 : 0.5}
+                        value={d.tol ?? def.tol ?? 0}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value)
+                          if (!Number.isNaN(v)) onSetTol(node.id, v)
+                        }}
+                      />
+                      <span className="tol-unit">{def.tolUnit}</span>
+                    </span>
+                  </div>
+                )}
+              </>
+            )
+          })()}
           <div className="inspector-row">
             <span className="inspector-key">status</span>
             <span style={{ color: status ? STATUS_COLOR[status] : undefined, fontWeight: 700 }}>
@@ -285,22 +306,6 @@ export default function Inspector({
             </div>
           )}
           {result?.detail && <div className="inspector-detail">{result.detail}</div>}
-        </div>
-      )}
-
-      {d.control === 'bronzeX' && (
-        <div className="inspector-section">
-          <div className="inspector-h">Control · x-offset</div>
-          <input
-            className="knob"
-            type="range"
-            min={BRONZE_X_MIN}
-            max={BRONZE_X_MAX}
-            step={0.002}
-            value={bronzeX}
-            onChange={(e) => setBronzeX(parseFloat(e.target.value))}
-          />
-          <div className="knob-val">x +{(bronzeX * 100).toFixed(1)}cm</div>
         </div>
       )}
 

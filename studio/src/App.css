@@ -9,20 +9,17 @@
   width: 168px; flex: none; overflow-y: auto;
   border-right: 1px solid var(--line); background: linear-gradient(180deg,#121517,#0E1012); padding: 10px;
 }
-.palette-head { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
-.palette-hint { font-size: 10px; color: var(--ink4); margin: 2px 0 10px; }
+.palette-head { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600; margin-bottom: 10px; }
 .palette-cat { margin-bottom: 12px; }
-.palette-cat-head { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink4); display: flex; justify-content: space-between; margin-bottom: 6px; }
-.palette-cat-hint { color: var(--line2); text-transform: none; letter-spacing: 0; }
 .palette-item {
-  display: flex; flex-direction: column; gap: 1px; padding: 6px 9px; margin-bottom: 5px;
+  display: flex; align-items: center; height: 32px; padding: 0 10px; margin-bottom: 4px;
   border: 1px solid var(--field-b); border-left: 2px solid var(--line2); border-radius: 4px;
   background: var(--inset); cursor: grab; user-select: none;
 }
-.palette-item:hover { background: var(--surface2); border-left-color: var(--sage); }
+.palette-item:hover { background: var(--surface2); }
 .palette-item:active { cursor: grabbing; }
-.palette-item-label { font-size: 12px; color: var(--ink); font-weight: 500; }
-.palette-item-sub { font-size: 10px; color: var(--ink4); font-variant-numeric: tabular-nums; }
+.palette-item-label { font-size: 12.5px; color: var(--ink2); font-weight: 500; }
+.palette-item:hover .palette-item-label { color: var(--ink); }
 /* a quiet kind accent on the left edge (cool variants) */
 .palette-item.kind-asset { border-left-color: #34C0AD; }
 .palette-item.kind-measure { border-left-color: #6E8BA0; }
@@ -38,6 +35,16 @@
   content: 'PLUMB'; position: absolute; right: 16px; bottom: 10px; z-index: 0; pointer-events: none;
   font-family: var(--serif); font-size: 34px; letter-spacing: .05em; color: rgba(231,234,236,.03);
 }
+/* transient hint when a wire is rejected by the typed ports */
+.ne-toast {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 5;
+  max-width: 460px; pointer-events: none;
+  background: linear-gradient(180deg,#23282C,#191D20); border: 1px solid var(--line2);
+  border-left: 2px solid var(--terracotta, #E0694F); border-radius: 6px;
+  padding: 8px 12px; color: var(--ink2); font-size: 11.5px; line-height: 1.45;
+  box-shadow: 0 6px 20px rgba(0,0,0,.4); animation: ne-toast-in .14s ease-out;
+}
+@keyframes ne-toast-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .react-flow { background: transparent; }
 .react-flow__edge-path { stroke: var(--line2); stroke-width: 1.4; }
 .react-flow__edge.selected .react-flow__edge-path,
@@ -98,6 +105,20 @@
 .inspector-select:focus { outline: none; border-color: var(--sage); }
 .inspector .knob { width: 100%; accent-color: var(--sage); margin: 4px 0; }
 .knob-val { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--ink2); }
+/* inline (right-aligned in a row) variant of the inspector select */
+.inspector-select-inline { width: auto; max-width: 160px; height: 24px; font-size: 11.5px; }
+/* editable law tolerance: ⟨cmp⟩ ⟨number⟩ ⟨unit⟩ */
+.tol-edit { display: inline-flex; align-items: center; gap: 4px; }
+.tol-cmp { color: var(--ink3); font-variant-numeric: tabular-nums; }
+.tol-unit { color: var(--ink3); font-size: 11px; }
+.tol-input {
+  width: 56px; height: 24px; padding: 0 6px; text-align: right;
+  background: var(--field); color: var(--ink); font-family: var(--sans);
+  font-size: 12px; font-variant-numeric: tabular-nums;
+  border: 1px solid var(--field-b); border-radius: 4px;
+}
+.tol-input:hover { border-color: var(--line2); }
+.tol-input:focus { outline: none; border-color: var(--sage); }
 .inspector-delete {
   width: 100%; height: 30px; border: 1px solid var(--line2); border-radius: 4px;
   background: var(--surface); color: var(--ink3); font-family: var(--sans); font-size: 12px; cursor: pointer;

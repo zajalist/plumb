@@ -446,8 +446,15 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .ss-num{width:86px;background:var(--field);border:1px solid var(--field-b);border-radius:3px;color:var(--ink);font-family:var(--sans);font-variant-numeric:tabular-nums;font-size:12px;padding:5px 8px}
 .ss-num:focus{outline:none;border-color:var(--sage)}
 .ss-row.ss-stack{align-items:stretch;flex-direction:column;gap:6px}
-.ss-toggle{cursor:pointer}
-.ss-toggle input{width:16px;height:16px;accent-color:var(--sage)}
+.ss-toggle{cursor:pointer;min-height:26px}
+/* UE4 Details-style checkbox: recessed box, teal fill + dark tick when on */
+.ss-toggle input[type=checkbox]{appearance:none;-webkit-appearance:none;flex:none;position:relative;
+  width:16px;height:16px;border-radius:3px;background:var(--field);border:1px solid var(--field-b);cursor:pointer;
+  box-shadow:inset 0 1px 1px rgba(0,0,0,.35)}
+.ss-toggle input[type=checkbox]:hover{border-color:var(--line2)}
+.ss-toggle input[type=checkbox]:checked{background:var(--sage);border-color:var(--sage);box-shadow:none}
+.ss-toggle input[type=checkbox]:checked::after{content:'';position:absolute;left:5px;top:1.5px;width:4px;height:8px;
+  border:solid #0E1012;border-width:0 2px 2px 0;transform:rotate(45deg)}
 .ss-hint{font-size:10.5px;color:var(--ink4);line-height:1.5;margin-top:-2px}
 .ss-div{height:1px;background:var(--glass-b);margin:3px 0}
 .ss-note{font-size:10.5px;color:var(--ink4);margin-top:2px;line-height:1.5}
@@ -677,3 +684,48 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .aff-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
 .aff-chip{font-size:10.5px;padding:2px 8px;border-radius:10px;background:rgba(52,192,173,.1);
   border:1px solid rgba(52,192,173,.35);color:var(--sage);white-space:nowrap}
+
+/* placement-distribution tool — docked launcher in Properties + centered modal */
+.pt-launch{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:34px;margin:2px 0 2px;
+  border-radius:5px;border:1px solid var(--line2);background:linear-gradient(180deg,#23282D,#181C1F);
+  color:var(--ink2);font-family:var(--sans);font-size:12px;font-weight:600;cursor:pointer;box-shadow:inset 0 1px 0 var(--glass-hi)}
+.pt-launch svg{color:var(--sage)}
+.pt-launch:hover{color:var(--ink);border-color:var(--sage-deep)}
+.pt-scrim{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;background:rgba(8,10,12,.6)}
+.pt-overlay{position:relative;z-index:91;width:560px;max-width:92vw;max-height:88vh;overflow:auto;border-radius:10px;
+  background:linear-gradient(180deg,#1b2024,#15191c);border:1px solid var(--line2);
+  box-shadow:0 24px 60px rgba(0,0,0,.6),inset 0 1px 0 var(--glass-hi)}
+.pt-head{display:flex;align-items:center;justify-content:space-between;height:38px;padding:0 10px 0 14px;
+  background:linear-gradient(180deg,rgba(52,192,173,.10),rgba(52,192,173,.02));border-bottom:1px solid var(--line)}
+.pt-title{font-size:12.5px;color:var(--sage);font-weight:600}
+.pt-x{appearance:none;background:none;border:none;color:var(--ink4);font-size:14px;cursor:pointer;padding:2px 4px}
+.pt-x:hover{color:var(--ink)}
+.pt-body{display:flex;gap:0}
+.pt-view{flex:none;width:300px;border-right:1px solid var(--line)}
+.pt-view svg{display:block}
+.pt-ctrl{flex:1;padding:12px 14px;display:flex;flex-direction:column;min-width:0}
+.pt-l{display:flex;align-items:center;justify-content:space-between;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3);font-weight:600;margin:10px 0 5px}
+.pt-l:first-child{margin-top:0}
+.pt-num{font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink2);text-transform:none;letter-spacing:0;font-weight:500}
+.pt-tag{height:30px;padding:0 10px;border-radius:6px;background:var(--field);border:1px solid var(--field-b);color:var(--ink);font-family:var(--sans);font-size:12.5px;outline:none}
+.pt-tag:focus{border-color:rgba(52,192,173,.55)}
+.pt-seg{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+.pt-seg button{appearance:none;height:28px;border-radius:5px;background:var(--field);border:1px solid var(--field-b);color:var(--ink2);font-family:var(--sans);font-size:11px;font-weight:600;cursor:pointer}
+.pt-seg button:hover{color:var(--ink)}
+.pt-seg button.on{background:rgba(52,192,173,.16);border-color:rgba(52,192,173,.55);color:var(--sage)}
+.pt-ctrl input[type=range]{width:100%;accent-color:var(--sage);cursor:pointer}
+.pt-reroll{appearance:none;background:none;border:1px solid var(--field-b);border-radius:4px;color:var(--ink3);cursor:pointer;font-size:11px;width:20px;height:18px;line-height:1;margin-left:6px}
+.pt-reroll:hover{color:var(--sage);border-color:rgba(52,192,173,.5)}
+.pt-cap{appearance:none;margin-top:14px;height:32px;border-radius:6px;border:1px solid var(--sage);background:linear-gradient(180deg,#172024,#121A1D);color:var(--sage);font-family:var(--sans);font-size:12.5px;font-weight:600;cursor:pointer}
+.pt-cap:hover:not(:disabled){background:linear-gradient(180deg,#1B262B,#141D21);color:#7fe0d2}
+.pt-cap:disabled{color:var(--ink4);border-color:var(--line2);cursor:default}
+.pt-dist{margin-top:12px;padding:9px 11px;border:1px solid rgba(52,192,173,.3);border-radius:7px;background:rgba(52,192,173,.05)}
+.pt-dh{font-size:11px;color:var(--sage);font-weight:600;margin-bottom:6px}
+.pt-dr{display:flex;align-items:center;justify-content:space-between;font-size:11.5px;color:var(--ink2);min-height:22px}
+.pt-dr b{font-variant-numeric:tabular-nums;color:var(--ink)}
+.pt-mcp{margin-top:7px;font-size:10px;color:var(--ink4);background:#0b0e10;border:1px solid var(--field-b);border-radius:4px;padding:4px 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pt-tags-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:11px}
+.pt-chip{font-size:10.5px;padding:2px 8px;border-radius:10px;background:var(--inset);border:1px solid var(--field-b);color:var(--ink3);cursor:pointer}
+.pt-chip.on{background:rgba(52,192,173,.14);border-color:rgba(52,192,173,.45);color:var(--sage)}
+.pt-clear{appearance:none;background:none;border:none;color:var(--ink4);font-size:10.5px;cursor:pointer;margin-left:auto;text-decoration:underline}
+.pt-clear:hover{color:var(--fail)}

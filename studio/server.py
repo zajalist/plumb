@@ -516,16 +516,57 @@ def delete_mask(asset_id: str, mask_id: str) -> dict:
     return {"ok": store.delete(asset_id, mask_id)}
 
 
-@app.get("/scene")
-def scene() -> dict:
-    """The live forest the agent is building over MCP (shared ``bakes/scene.json``).
+# --------------------------------------------------------------------------- #
+# Placement distributions — the studio captures demonstrated placements; the MCP
+# server serves the learned distribution to an agent. Shared bakes/placements store.
+# --------------------------------------------------------------------------- #
+class PlacementExample(BaseModel):
+    """One demonstrated placement of an asset on a tagged reference surface (surface frame)."""
 
-    The cortex MCP server writes the scene on every place/validate; the studio polls this
-    so the forest — each tree coloured by its latest verdict — renders live in the viewport.
-    """
-    from cortex import scene_store
+    tag: str
+    orientation: str = "horizontal"
+    normal_offset: float = 0.0
+    tilt_deg: float = 0.0
+    yaw_deg: float = 0.0
+    lateral: list[float] = [0.0, 0.0]
+    noise: dict | None = None
 
-    return scene_store.load_scene()
+
+@app.get("/placement/{asset_id}")
+def get_placements(asset_id: str) -> dict:
+    """All captured examples for an asset + per-tag counts."""
+    from cortex import placement_store
+
+    return {"examples": placement_store.load(asset_id).get("examples", []),
+            "tags": placement_store.tags(asset_id)}
+
+
+@app.post("/placement/{asset_id}")
+def add_placement(asset_id: str, ex: PlacementExample) -> dict:
+    """Capture one demonstrated placement example."""
+    from cortex import placement_store
+
+    stored = placement_store.add_example(asset_id, ex.model_dump())
+    return {"ok": True, "example": stored, "tags": placement_store.tags(asset_id)}
+
+
+@app.get("/placement/{asset_id}/dist/{tag}")
+def placement_distribution(asset_id: str, tag: str) -> dict:
+    """The aggregated distribution (mean + spread) for one surface tag."""
+    from cortex import placement_store
+
+    dist = placement_store.distribution(asset_id, tag)
+    if dist is None:
+        raise HTTPException(status_code=404, detail=f"no '{tag}' examples for {asset_id!r}")
+    return dist
+
+
+@app.delete("/placement/{asset_id}")
+def clear_placements(asset_id: str, tag: str | None = None) -> dict:
+    """Clear all examples, or just one tag's (``?tag=table``)."""
+    from cortex import placement_store
+
+    return {"remaining": placement_store.clear(asset_id, tag)}
 
 
 class SweptReq(BaseModel):

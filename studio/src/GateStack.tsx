@@ -24,7 +24,7 @@ const cm = (m: number | null) => (m === null ? 'idle' : `${m >= 0 ? '+' : '−'}
 // The gate-stack toolbar: live 3D gate icons on the left, then a UE4-style transform
 // block (Location / Rotation) and the validate → repair → commit action cluster on
 // the right. Rotation feeds the quaternion, so it affects the stability gate.
-export function GateStack({ verdict, pos, setPos, rot, setRot, busy, onValidate, onRepair, onCommit }: {
+export function GateStack({ verdict, pos, setPos, rot, setRot, busy, onValidate, onRepair, onCommit, freeStanding, setFreeStanding }: {
   verdict: VerdictLike
   pos?: number[]
   setPos?: (p: number[]) => void
@@ -34,6 +34,8 @@ export function GateStack({ verdict, pos, setPos, rot, setRot, busy, onValidate,
   onValidate?: () => void
   onRepair?: () => void
   onCommit?: () => void
+  freeStanding?: boolean
+  setFreeStanding?: (b: boolean) => void
 }) {
   const by = new Map((verdict?.gates ?? []).map((g) => [g.gate, g]))
   const stab = by.get('stability')
@@ -85,6 +87,19 @@ export function GateStack({ verdict, pos, setPos, rot, setRot, busy, onValidate,
           <div className="gact-sep" />
 
           <div className="gact-r">
+            {setFreeStanding && (
+              <div className="gsupport" title="Free-standing: the base co-moves with the body, so lateral placement doesn't topple it. Pedestal: the base is anchored at the origin (the gallery model).">
+                <span className="gsupport-lbl">Support</span>
+                <button
+                  className={`gsupport-opt ${freeStanding ? 'on' : ''}`}
+                  onClick={() => setFreeStanding(true)}
+                >Free-standing</button>
+                <button
+                  className={`gsupport-opt ${!freeStanding ? 'on' : ''}`}
+                  onClick={() => setFreeStanding(false)}
+                >Pedestal</button>
+              </div>
+            )}
             <div className={`gact-read ${failed ? 'fail' : ready ? 'pass' : ''}`}>
               {verdict
                 ? stab && stab.value_m !== null
