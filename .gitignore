@@ -17,3 +17,13 @@ bakes/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Tooling artifacts (brainstorm mockups, playwright screenshots)
+.superpowers/
+.playwright-mcp/
+plumb-refined.png
+
+# studio test artifacts / screenshots
+studio/test_figure.obj
+studio-*.png
+reductive-preview.png

@@ -1,0 +1,39 @@
+/* Node-editor styling consumed by ConstraintGraph.tsx (Fara).
+   The app shell + tokens now live in theme.css; this file intentionally does NOT
+   redefine --line / --ink (they come from theme.css) so the graph adopts the
+   austere palette. Only node-editor-specific vars + rules remain here. */
+:root {
+  --chrome: #1c1b14;       /* node surface */
+  --ink-dim: #7c7868;      /* secondary node text (alias of theme --ink3) */
+  --blueprint: #8e9a60;    /* selection accent (sage) */
+}
+
+/* react-flow surface */
+.react-flow { background: transparent; }
+.react-flow__handle { background: var(--ink-dim); border: none; width: 6px; height: 6px; }
+.react-flow__edge-path { stroke: #39362a; }
+
+/* nodes */
+.node {
+  background: var(--chrome);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 11px;
+  min-width: 130px;
+  color: var(--ink);
+  font-size: 12px;
+}
+.node-title { font-weight: 600; }
+.node-sub { color: var(--ink-dim); font-size: 11px; margin-top: 2px; }
+.node-op { opacity: 0.92; }
+.node-gate { border-width: 1.5px; }
+.node-gate-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.node-headline { font-weight: 700; font-size: 15px; margin-top: 3px; }
+.pill {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #16150f;
+  padding: 1px 6px;
+  border-radius: 999px;
+}

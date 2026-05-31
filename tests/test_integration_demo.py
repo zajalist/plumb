@@ -201,11 +201,20 @@ def test_no_conscience_module_imports_cortex_grep():
 
 def test_running_the_demo_never_loads_the_cortex_package():
     """
-    Runtime proof: after a full `run_demo`, the `cortex` package is not in `sys.modules`.
-    Nothing on the demo path pulls cortex in — not even transitively.
+    Runtime proof: after a full `run_demo` in a FRESH interpreter, the `cortex` package is
+    not in `sys.modules`. Nothing on the demo path pulls cortex in — not even transitively.
+    Subprocess isolation makes this robust on a merged tree where the cortex suite would
+    otherwise leave `cortex` in the shared session's sys.modules.
     """
-    demo.run_demo(FakeCortex(), out=tmp_path(".rrd"))
-    cortex_mods = [m for m in sys.modules if m == "cortex" or m.startswith("cortex.")]
+    from tests.helpers import cortex_modules_after
+    setup = (
+        "import tempfile\n"
+        "from conscience import demo\n"
+        "from conscience.cortex_client import FakeCortex\n"
+        "demo.run_demo(FakeCortex(), "
+        "out=tempfile.NamedTemporaryFile(suffix='.rrd', delete=False).name)\n"
+    )
+    cortex_mods = cortex_modules_after(setup)
     assert cortex_mods == [], (
         "the demo path must not import the cortex package; found: " + ", ".join(cortex_mods)
     )

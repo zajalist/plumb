@@ -90,6 +90,7 @@ def init_recording(
     """
     rec = rr.RecordingStream(app_id)
     rec.save(path)
+    rec.send_blueprint(rr.blueprint.Blueprint(collapse_panels=True))
     log = log_fn if log_fn is not None else rec.log
     # Static: the convention holds for all of time, not a single frame.
     log(ROOT, rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
