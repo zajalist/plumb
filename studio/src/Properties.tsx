@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Icon } from './Icons'
 import { DragField } from './DragField'
 import type { PAP, WdfAsset } from './api'
@@ -13,21 +13,24 @@ const SWATCH: Record<string, string> = {
 const MASK_PALETTE = ['#34C0AD', '#D9A84C', '#6E8BA0', '#E0694F', '#5FA38C', '#A088B0', '#C2925A', '#7C8AA0']
 const MATERIALS = ['default', 'wood', 'foliage', 'stone', 'metal', 'glass', 'plastic', 'fabric', 'bronze', 'water']
 
-export function Properties({ pap, footer, onConfirm, onCloseMesh, busy, declared }: {
+export function Properties({ pap, footer, onConfirm, onCloseMesh, onEditPap, busy, declared }: {
   pap: PAP | null
   footer?: ReactNode
   onConfirm?: (materials: Record<string, string>) => void
   onCloseMesh?: () => void   // re-bake with hole-filling to close an open mesh
+  // manual physics override — patches the PAP so the viewport updates live
+  onEditPap?: (patch: { physical?: Partial<PAP['physical']>; geometry?: Partial<PAP['geometry']> }) => void
   busy?: boolean
   declared?: WdfAsset       // an asset declared by an opened .wdf (no bake yet)
 }) {
   // per-part material overrides (idx -> material), reset when the asset changes
   const [over, setOver] = useState<Record<number, string>>({})
-  // manual physics overrides (null = use the baked value)
-  const [massOv, setMassOv] = useState<number | null>(null)
-  const [volOv, setVolOv] = useState<number | null>(null)
-  const [comOv, setComOv] = useState<number[] | null>(null)
-  useEffect(() => { setOver({}); setMassOv(null); setVolOv(null); setComOv(null) }, [pap?.asset_id])
+  // stable fill-bar maxima captured per asset (so live mass/volume edits don't move the goalposts)
+  const baseRef = useRef({ mass: 200, vol: 100 })
+  useEffect(() => {
+    setOver({})
+    if (pap) baseRef.current = { mass: Math.max(200, pap.physical.mass_kg * 2), vol: Math.max(100, pap.geometry.volume_m3 * 1000 * 2) }
+  }, [pap?.asset_id])
 
   if (!pap && declared) {
     const masks = Object.entries(declared.material)
@@ -124,23 +127,23 @@ export function Properties({ pap, footer, onConfirm, onCloseMesh, busy, declared
           <div className="label" style={{ marginBottom: 4 }}>Physics</div>
           <div className="prop">
             <span className="k"><Icon name="mass" />mass</span>
-            <DragField value={massOv ?? pap.physical.mass_kg} onChange={setMassOv}
-              min={0} max={Math.max(200, pap.physical.mass_kg * 2)} step={0.5} decimals={1} unit="kg" />
+            <DragField value={pap.physical.mass_kg} onChange={(v) => onEditPap?.({ physical: { mass_kg: v } })}
+              min={0} max={baseRef.current.mass} step={0.5} decimals={1} unit="kg" />
           </div>
           <div className="prop">
             <span className="k"><Icon name="com" />centre of mass</span>
             <span className="vec">
-              {(comOv ?? pap.physical.com).map((c, i) => (
+              {pap.physical.com.map((c, i) => (
                 <DragField key={i} value={c} min={-2} max={2} step={0.01} decimals={2} showFill={false}
                   prefix={<span style={{ color: AXIS[i], fontWeight: 700 }}>{'XYZ'[i]}</span>}
-                  onChange={(v) => { const next = [...(comOv ?? pap.physical.com)]; next[i] = v; setComOv(next) }} />
+                  onChange={(v) => { const next = [...pap.physical.com]; next[i] = v; onEditPap?.({ physical: { com: next } }) }} />
               ))}
             </span>
           </div>
           <div className="prop">
             <span className="k">volume</span>
-            <DragField value={volOv ?? pap.geometry.volume_m3 * 1000} onChange={setVolOv}
-              min={0} max={Math.max(100, pap.geometry.volume_m3 * 1000 * 2)} step={0.5} decimals={1} unit="L" />
+            <DragField value={pap.geometry.volume_m3 * 1000} onChange={(v) => onEditPap?.({ geometry: { volume_m3: v / 1000 } })}
+              min={0} max={baseRef.current.vol} step={0.5} decimals={1} unit="L" />
           </div>
         </div>
         <div className="psec" style={{ borderBottom: 'none' }}>

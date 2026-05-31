@@ -14,7 +14,7 @@ import { ReactFlowProvider } from '@xyflow/react'
 import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
 import Palette from './components/Palette'
 import { INITIAL_SCENE, type SceneState } from './lib/engine'
-import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health, type Verdict, type WdfDoc } from './api'
+import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health, type Verdict, type WdfDoc, type PAP } from './api'
 import './App.css'
 
 export default function App() {
@@ -181,6 +181,18 @@ export default function App() {
     } finally { setBusy(false) }
   }, [selected, settings])
 
+  // Manual override of baked physics (mass / volume / CoM). Mutates the selected
+  // asset's PAP so the viewport (CoM marker, plumb, force view) updates live.
+  const onEditPap = useCallback((patch: { physical?: Partial<PAP['physical']>; geometry?: Partial<PAP['geometry']> }) => {
+    setAssets((a) => a.map((x) => (x.id === sel && x.pap)
+      ? { ...x, pap: {
+          ...x.pap,
+          physical: patch.physical ? { ...x.pap.physical, ...patch.physical } : x.pap.physical,
+          geometry: patch.geometry ? { ...x.pap.geometry, ...patch.geometry } : x.pap.geometry,
+        } }
+      : x))
+  }, [sel])
+
   // close-mesh: re-bake the selected mesh with hole-filling so open surfaces get capped
   // and mass/volume become real (not estimated).
   const onCloseMesh = useCallback(async () => {
@@ -240,7 +252,7 @@ export default function App() {
           pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status}
           onDropFiles={onAddFiles} />
         <Properties pap={selected?.pap ?? null} footer={inspector}
-          onConfirm={onConfirmMaterials} onCloseMesh={onCloseMesh} busy={busy} declared={selected?.wdf} />
+          onConfirm={onConfirmMaterials} onCloseMesh={onCloseMesh} onEditPap={onEditPap} busy={busy} declared={selected?.wdf} />
       </div>
 
       <div
