@@ -190,6 +190,22 @@ async def bake(
             if ex.filename:
                 with open(os.path.join(work, os.path.basename(ex.filename)), "wb") as f:
                     f.write(await ex.read())
+        # Sidecars are staged flat (by basename), but a .gltf may reference them with
+        # subfolders (textures/foo.jpg). Rewrite its buffer/image URIs to basenames so
+        # they resolve against the flat staging dir regardless of the original nesting.
+        if fn.lower().endswith(".gltf"):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    doc = json.load(f)
+                for coll in ("buffers", "images"):
+                    for item in doc.get(coll, []):
+                        uri = item.get("uri")
+                        if uri and not uri.startswith("data:"):
+                            item["uri"] = os.path.basename(uri.split("?")[0])
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(doc, f)
+            except Exception:
+                pass
 
     if decimate:
         path = _maybe_decimate(path, int(decimate))

@@ -316,6 +316,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .stage-drop.on svg{color:var(--sage)}
 .stage-drop .sd-1{font-size:13.5px;font-weight:500;color:var(--ink)}
 .stage-drop .sd-2{font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--ink4)}
+.stage-drop .sd-3{font-size:10px;color:var(--ink4);margin-top:6px;max-width:240px;line-height:1.4}
+.stage-drop .sd-folder{appearance:none;margin-top:10px;background:none;border:1px solid var(--line2);border-radius:5px;color:var(--ink2);font-family:var(--sans);font-size:11px;padding:4px 11px;cursor:pointer}
+.stage-drop .sd-folder:hover{border-color:var(--sage);color:var(--sage)}
 .stage-settings{display:flex;flex-direction:column;gap:12px}
 .ss-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .ss-k{font-size:12.5px;color:var(--ink2)}
