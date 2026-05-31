@@ -98,20 +98,31 @@ Don't rip out `engine.ts` mid-build. Source the **list** from the real store fir
 
 ---
 
-## Phased plan (no code yet — this is the sequence we'll follow)
+## Phased plan — status
 
-- **P0 · Declutter (frontend only, no backend).** Replace ~15 palette items with the 5 abstract
-  nodes (D2); move specifics into inspector dropdowns. `engine.ts` keeps computing. *Done = the
-  palette shows 5 nodes and the Gallery graph still evaluates.*
-- **P1 · Sync the list.** One shared scene store; Object dropdown reads imported/baked assets;
-  import → appears in dropdown, nothing auto-spawns. *Done = bake `test_figure.obj`, it's
-  selectable in an Object node.*
-- **P2 · Real numbers.** Selected Object's mass/CoM come from the real `/bake` PAP; Measures read
-  it. *Done = the Object's `comOverFootprint` shows its own baked margin, not the canned −7cm.*
-- **P3 · Behaviour authoring (Layer A).** Object inspector gains **Articulation** (door angles →
-  swept wedge in viewport = **WP-6**) and later **Placement distribution** (= **WP-8**).
-- **P4 · Live verdict.** Law evaluation via real `/validate`; the graph animates green/amber/red
-  (§11 "intent conscience").
+- **P0 · Declutter — ✅ DONE** (`8f412d9`). Palette is 5 abstract nodes; specifics in an inspector
+  Type dropdown; op-change re-derives ports and prunes mismatched wires. `engine.ts` unchanged.
+- **P1 · Sync the list — ✅ DONE** (`a3a1314`). Baked assets flow into the editor; an Object
+  node's inspector dropdown lists **Imported assets** + demo assets; selecting binds the node
+  (`object` op + `assetId`). Import & bake → selectable. Nothing auto-spawns.
+- **P2 · Real numbers — ◑ PARTIAL** (`5fd5475`). A bound Object shows real baked **mass** on the
+  node and **mass + CoM** in an inspector *Baked · PAP* section. **Remaining:** live
+  `comOverFootprint` *margin* — needs the backend `/validate` (no client-side physics), so it
+  folds into P4.
+- **P3 · Behaviour authoring (Layer A) — ☐ TODO (large; WP-6 + WP-8).** Needs: a backend endpoint
+  for the door swept-volume (`cortex.bake_profiles.door.swept_volume` exists; no HTTP route yet),
+  a Viewport overlay mesh for the wedge, and an inspector "Articulation" UI (opening angles).
+  Placement distribution (sampling/`buried⚙`) is a further block. **Blocked on O1** (inspector vs
+  separate Asset Studio view).
+- **P4 · Live verdict — ☐ TODO (large; Integration #1).** Swap the node editor's `engine.ts`
+  stand-in for real `/validate` calls so Measures/Laws/Verdict show backend truth and animate
+  (§11). This is async, needs a placement model, maps gate results → law nodes, and changes the
+  live bronzeX-knob demo — so it deserves its own focused pass, not a rushed bolt-on.
+
+> **Why P3/P4 weren't auto-completed:** both are sizeable backend-integration features that would
+> touch the working, committed demo and (P3) depend on the still-open O1 decision. Per the
+> project's own rule — "submit the latest clean milestone, not the most code" — they're left as
+> clean, well-scoped next steps rather than a risky half-build.
 
 ---
 
@@ -124,7 +135,7 @@ Don't rip out `engine.ts` mid-build. Source the **list** from the real store fir
 
 ## Still open (need a human call)
 - **O1** — Is **Layer A authored in the Object's inspector**, or in a **separate Asset Studio
-  view**? (Both spec-valid; affects UX, not the data model.)
+  view**? (Both spec-valid; affects UX, not the data model.) **Blocks P3.**
 - **O2** — Naming: keep friendly `Object/Measure/Law/Field` labels, or use literal spec terms
   (`Selector/Operator/Constraint`)? (Cosmetic; pick what reads better for the demo.)
 - **O3** — Confirm P0 can land without disturbing Fara's `ConstraintGraph.tsx` internals.
