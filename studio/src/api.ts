@@ -20,17 +20,21 @@ export type PAP = {
   rest_states: string[]
   parts?: Part[]
 }
-export type Health = { ok: boolean; cortex: boolean }
+export type Health = { ok: boolean; cortex: boolean; ue?: { available: boolean; cmd: boolean; project: boolean } }
 
 export async function health(): Promise<Health> {
   const r = await fetch(`${BASE}/health`)
   return r.json()
 }
 
-export async function bake(file: File, materials?: Record<string, string>): Promise<PAP> {
+export type BakeOpts = { materials?: Record<string, string>; profile?: string; decimate?: number }
+
+export async function bake(file: File, opts: BakeOpts = {}): Promise<PAP> {
   const fd = new FormData()
   fd.append('mesh', file)
-  if (materials) fd.append('materials', JSON.stringify(materials))
+  if (opts.materials) fd.append('materials', JSON.stringify(opts.materials))
+  if (opts.profile) fd.append('profile', opts.profile)
+  if (opts.decimate) fd.append('decimate', String(opts.decimate))
   const r = await fetch(`${BASE}/bake`, { method: 'POST', body: fd })
   if (!r.ok) {
     const detail = await r.json().catch(() => ({}))

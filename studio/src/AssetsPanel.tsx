@@ -6,7 +6,7 @@ export type Asset = {
   name: string
   file?: File            // absent for assets declared by an opened .wdf
   pap?: PAP
-  status: 'baking' | 'ok' | 'error' | 'declared'
+  status: 'queued' | 'converting' | 'baking' | 'ok' | 'error' | 'declared'
   error?: string
   wdf?: WdfAsset         // present when this asset came from a .wdf vocabulary
 }

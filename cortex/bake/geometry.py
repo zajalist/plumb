@@ -19,6 +19,8 @@ the ``Geometry`` contract has no field for it and must not be modified.
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import trimesh
 
@@ -27,6 +29,18 @@ from contracts import Geometry
 # CoACD convexity threshold. Lower = more parts / tighter fit; 0.05 is the library
 # default and a good speed/quality balance for prop-scale meshes.
 _COACD_THRESHOLD = 0.05
+
+# CoACD can run for a very long time on non-watertight meshes (its voxel-remesh
+# path) and is a C extension a thread can't interrupt — so we run it in a
+# subprocess with a hard timeout and fall back to a convex decomposition / hull if
+# it overruns. Tunable for slow machines / dense scenes.
+_COACD_TIMEOUT_S = float(os.environ.get("PLUMB_COACD_TIMEOUT", "20"))
+# Bounded-cost params: lower preprocess/sampling than the library defaults so a
+# messy mesh still finishes; quality stays good on clean (watertight) meshes.
+_COACD_PARAMS = dict(
+    preprocess_mode="auto", preprocess_resolution=30, resolution=1500,
+    mcts_iterations=100, mcts_max_depth=2, mcts_nodes=20, merge=True,
+)
 
 DecompositionFlag = str  # "coacd" | "fallback"
 
@@ -98,24 +112,54 @@ def _convex_parts(
     return _fallback_parts(mesh), "fallback"
 
 
-def _coacd_parts(mesh: trimesh.Trimesh) -> list[trimesh.Trimesh]:
-    """Run CoACD; return convex parts as Trimesh, or [] if CoACD is unavailable."""
+def _coacd_worker(q, vertices, faces, threshold, params) -> None:
+    """Subprocess entry: run CoACD and push ``[(V, F), …]`` (or ``[]`` on error) to ``q``."""
     try:
-        import coacd  # imported lazily so the bake works without the wheel
+        import coacd
+
+        coacd.set_log_level("error")
+        cmesh = coacd.Mesh(vertices, faces)
+        result = coacd.run_coacd(cmesh, threshold=threshold, **params)
+        q.put([(np.asarray(v), np.asarray(f)) for v, f in result])
+    except Exception:
+        q.put([])
+
+
+def _coacd_parts(mesh: trimesh.Trimesh) -> list[trimesh.Trimesh]:
+    """Run CoACD in a subprocess with a hard timeout; ``[]`` on timeout/unavailable.
+
+    The empty return demotes to the graceful fallback in :func:`_convex_parts`, so a
+    CoACD hang (it spinning on a non-watertight mesh) can never block a bake. The
+    subprocess is the only way to bound a C-extension call — a thread can't kill it.
+    """
+    try:
+        import coacd  # noqa: F401 — probe availability before paying the spawn cost
     except Exception:
         return []
 
+    import multiprocessing as mp
+    import queue as _queue
+
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int32)
+    ctx = mp.get_context("spawn")
+    q = ctx.Queue()
+    proc = ctx.Process(
+        target=_coacd_worker, args=(q, vertices, faces, _COACD_THRESHOLD, _COACD_PARAMS),
+    )
+    proc.start()
     try:
-        coacd.set_log_level("error")
-        cmesh = coacd.Mesh(np.asarray(mesh.vertices, dtype=np.float64),
-                           np.asarray(mesh.faces, dtype=np.int32))
-        result = coacd.run_coacd(cmesh, threshold=_COACD_THRESHOLD)
-    except Exception:
-        return []
+        raw = q.get(timeout=_COACD_TIMEOUT_S)
+    except _queue.Empty:
+        raw = []  # CoACD overran its budget → fall back to a convex decomposition
+    finally:
+        if proc.is_alive():
+            proc.terminate()
+        proc.join(timeout=2)
 
     parts: list[trimesh.Trimesh] = []
-    for vertices, faces in result:
-        part = trimesh.Trimesh(vertices=np.asarray(vertices), faces=np.asarray(faces))
+    for part_v, part_f in raw:
+        part = trimesh.Trimesh(vertices=np.asarray(part_v), faces=np.asarray(part_f))
         if part.volume and abs(part.volume) > 0:
             parts.append(part)
     return parts

@@ -83,15 +83,43 @@ def health() -> dict:
     return {"ok": True, "cortex": _cortex_available(), "ue": ue_status()}
 
 
+def _maybe_decimate(path: str, target_faces: int) -> str:
+    """Best-effort quadric-decimate ``path`` to ~``target_faces`` so CoACD stays fast.
+
+    Returns a new temp mesh path on success, else the original path unchanged (the
+    setting is a hint, never a hard failure — we never block a bake on it).
+    """
+    try:
+        import trimesh
+
+        mesh = trimesh.load(path, force="mesh", process=False)
+        if not isinstance(mesh, trimesh.Trimesh) or len(mesh.faces) <= target_faces:
+            return path
+        simplified = mesh.simplify_quadric_decimation(face_count=target_faces)
+        if simplified is None or len(simplified.faces) == 0:
+            return path
+        out = tempfile.NamedTemporaryFile(suffix=".obj", delete=False)
+        out.close()
+        simplified.export(out.name)
+        return out.name
+    except Exception:
+        return path  # decimation unsupported / failed → bake the original
+
+
 @app.post("/bake")
-async def bake(mesh: UploadFile = File(...), materials: str | None = Form(None)) -> dict:
+async def bake(
+    mesh: UploadFile = File(...),
+    materials: str | None = Form(None),
+    profile: str = Form("rigid_prop"),
+    decimate: int | None = Form(None),
+) -> dict:
     """Run the real composition bake on an uploaded mesh and return its PAP + masks.
 
-    ``materials`` is an optional JSON map (part key -> material name) forwarded to
-    ``cortex.bake``; absent => a pure auto-bake (default-density physics + a
-    low-confidence material guess per part). The response is the PAP plus a
-    ``parts`` array: the per-part masks (volume fraction, displayed material +
-    confidence, mask colour, hollowness) the studio renders and the human confirms.
+    ``materials`` is an optional JSON map (part key -> material name); absent => a pure
+    auto-bake (default-density physics + a low-confidence guess per part). ``profile``
+    selects the bake archetype; ``decimate`` (target face count) best-effort simplifies
+    dense meshes first so CoACD stays fast. The response is the PAP plus a ``parts``
+    array: the per-part masks the studio renders and the human confirms.
     """
     from cortex.bake import bake_asset_detailed
 
@@ -116,10 +144,13 @@ async def bake(mesh: UploadFile = File(...), materials: str | None = Form(None))
             raise HTTPException(status_code=422, detail=f"Unreal produced no mesh for {fn}")
         path = glb
 
+    if decimate:
+        path = _maybe_decimate(path, int(decimate))
+
     asset_id = fn.rsplit(".", 1)[0]
     part_materials = json.loads(materials) if materials else None
     try:
-        pap, parts = bake_asset_detailed(asset_id, path, part_materials=part_materials)
+        pap, parts = bake_asset_detailed(asset_id, path, part_materials=part_materials, profile=profile)
     except Exception as e:  # bad mesh / decomposition failure — surface, don't crash
         raise HTTPException(status_code=422, detail=f"bake failed: {e}") from e
 
