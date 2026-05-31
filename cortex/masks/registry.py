@@ -49,7 +49,7 @@ def get_provider(key: str) -> MaskProvider | None:
     return _REGISTRY.get(key)
 
 
-def providers() -> list[MaskProvider]:
+def all_providers() -> list[MaskProvider]:
     return list(_REGISTRY.values())
 
 

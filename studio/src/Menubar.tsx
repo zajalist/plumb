@@ -1,22 +1,42 @@
 import { useEffect, useRef, useState } from 'react'
+import { listProjects, type ProjectInfo } from './api'
 
 // The top menu bar: a text wordmark + working dropdown menus. Every item does a
 // real thing — file dialogs, undo/redo (dispatched to the node editor's global key
 // handler), fullscreen, docs, about.
 type Item = 'sep' | { label: string; accel?: string; onClick?: () => void; disabled?: boolean }
 
-export function Menubar({ projectName, assetCount, onNew, onOpenWdf, onImport }: {
+export function Menubar({ projectName, assetCount, onNew, onOpenWdf, onImport, onSaveProject, onOpenProject }: {
   projectName: string
   assetCount: number
   onNew: () => void
   onOpenWdf: (file: File) => void
   onImport: (files: File[]) => void
+  onSaveProject?: (name: string) => void | Promise<void>
+  onOpenProject?: (name: string) => void | Promise<void>
 }) {
   const [open, setOpen] = useState<string | null>(null)
   const [about, setAbout] = useState(false)
+  const [saveOpen, setSaveOpen] = useState(false)
+  const [saveName, setSaveName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [openOpen, setOpenOpen] = useState(false)
+  const [projects, setProjects] = useState<ProjectInfo[] | null>(null)
   const barRef = useRef<HTMLDivElement>(null)
   const wdfInput = useRef<HTMLInputElement>(null)
   const meshInput = useRef<HTMLInputElement>(null)
+
+  const doSave = async () => {
+    const name = saveName.trim()
+    if (!name || !onSaveProject) return
+    setSaving(true)
+    try { await onSaveProject(name); setSaveOpen(false); setSaveName('') }
+    finally { setSaving(false) }
+  }
+  const openPicker = async () => {
+    setOpenOpen(true); setProjects(null)
+    try { setProjects(await listProjects()) } catch { setProjects([]) }
+  }
 
   useEffect(() => {
     if (!open) return
@@ -37,6 +57,9 @@ export function Menubar({ projectName, assetCount, onNew, onOpenWdf, onImport }:
   const MENUS: Record<string, Item[]> = {
     File: [
       { label: 'New project', accel: 'Ctrl N', onClick: onNew },
+      { label: 'Open project…', onClick: openPicker, disabled: !onOpenProject },
+      { label: 'Save project…', accel: 'Ctrl S', onClick: () => { setSaveName(projectName && projectName !== 'untitled' ? projectName : ''); setSaveOpen(true) }, disabled: !onSaveProject || assetCount === 0 },
+      'sep',
       { label: 'Open .wdf…', accel: 'Ctrl O', onClick: () => wdfInput.current?.click() },
       { label: 'Import mesh…', accel: 'Ctrl I', onClick: () => meshInput.current?.click() },
     ],
@@ -103,6 +126,44 @@ export function Menubar({ projectName, assetCount, onNew, onOpenWdf, onImport }:
             <p style={{ marginTop: 8, color: 'var(--ink2)' }}>Spatial validation for physically-grounded 3D worlds.</p>
             <p className="mono" style={{ marginTop: 10, color: 'var(--ink4)', fontSize: 11 }}>v0.1 · local cortex</p>
             <button className="menu-item modal-close" onClick={() => setAbout(false)}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {saveOpen && (
+        <div className="modal-scrim" onClick={() => !saving && setSaveOpen(false)}>
+          <div className="modal proj-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="pm-h">Save project</div>
+            <p className="pm-sub">Saves the <span className="mono">.wdf</span> semantics and the {assetCount} model{assetCount === 1 ? '' : 's'} together.</p>
+            <input className="pm-input" autoFocus placeholder="Project name…" value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void doSave(); else if (e.key === 'Escape') setSaveOpen(false) }} />
+            <div className="pm-actions">
+              <button className="menu-item" onClick={() => setSaveOpen(false)} disabled={saving}>Cancel</button>
+              <button className="pm-go" onClick={() => void doSave()} disabled={saving || !saveName.trim()}>{saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {openOpen && (
+        <div className="modal-scrim" onClick={() => setOpenOpen(false)}>
+          <div className="modal proj-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="pm-h">Open project</div>
+            <div className="pm-list">
+              {projects === null && <div className="pm-empty">Loading…</div>}
+              {projects?.length === 0 && <div className="pm-empty">No saved projects yet.</div>}
+              {projects?.map((p) => (
+                <button className="pm-row" key={p.name}
+                  onClick={async () => { setOpenOpen(false); await onOpenProject?.(p.name) }}>
+                  <span className="pm-name">{p.name}</span>
+                  <span className="pm-meta mono">{p.assets} asset{p.assets === 1 ? '' : 's'}</span>
+                </button>
+              ))}
+            </div>
+            <div className="pm-actions">
+              <button className="menu-item" onClick={() => setOpenOpen(false)}>Close</button>
+            </div>
           </div>
         </div>
       )}

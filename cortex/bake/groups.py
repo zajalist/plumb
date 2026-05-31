@@ -56,17 +56,45 @@ def material_density(name: str | None) -> tuple[str, float]:
 
 
 def _load_groups(mesh_path: str) -> list[tuple[str, trimesh.Trimesh]]:
-    """``[(material_name, geometry), …]`` for a multi-material scene, else ``[]``."""
+    """``[(material_name, geometry), …]`` for a multi-material scene, else ``[]``.
+
+    Each geometry is returned with its scene-graph node transform **baked into the
+    vertices** (scene frame), so groups share one coordinate frame — the same frame the
+    studio derives from the loaded model's local matrix (which lets the manual cap plane
+    land on the right opening), and the correct frame for composite CoM/inertia.
+    """
     loaded = trimesh.load(mesh_path, process=False)
     if not isinstance(loaded, trimesh.Scene):
         return []
     groups: list[tuple[str, trimesh.Trimesh]] = []
-    for gname, geo in loaded.geometry.items():
-        if not isinstance(geo, trimesh.Trimesh) or len(geo.faces) == 0:
-            continue
-        mat = getattr(getattr(geo, "visual", None), "material", None)
-        name = getattr(mat, "name", None) or gname
-        groups.append((str(name), geo))
+    try:
+        nodes = list(loaded.graph.nodes_geometry)
+    except Exception:
+        nodes = []
+    if nodes:
+        for node in nodes:
+            try:
+                transform, gname = loaded.graph[node]
+            except Exception:
+                continue
+            geo = loaded.geometry.get(gname)
+            if not isinstance(geo, trimesh.Trimesh) or len(geo.faces) == 0:
+                continue
+            g = geo.copy()
+            try:
+                g.apply_transform(transform)
+            except Exception:
+                pass
+            mat = getattr(getattr(g, "visual", None), "material", None)
+            name = getattr(mat, "name", None) or gname
+            groups.append((str(name), g))
+    else:  # no graph instancing info — fall back to the raw geometries
+        for gname, geo in loaded.geometry.items():
+            if not isinstance(geo, trimesh.Trimesh) or len(geo.faces) == 0:
+                continue
+            mat = getattr(getattr(geo, "visual", None), "material", None)
+            name = getattr(mat, "name", None) or gname
+            groups.append((str(name), geo))
     return groups if len(groups) >= 2 else []
 
 
@@ -162,14 +190,15 @@ def _close_group(geo: trimesh.Trimesh) -> None:
             pass
 
 
-def bake_material_groups(mesh_path: str, cap: bool = False):
+def bake_material_groups(mesh_path: str, cap: bool = False, cap_plane: dict | None = None):
     """Bake material-group masks for a multi-material mesh, or ``None`` to fall back.
 
     Returns ``(Geometry, Physical, masks)`` where ``masks`` is one dict per material
     group (id = material name, density-bucket material, volume/mass + fractions, mask
-    colour). Physics is composition-aware over the groups. ``cap`` closes open meshes
-    (fills holes / caps openings) first so the volume is real, not estimated. No per-part
-    vertices — the viewport renders the real model client-side.
+    colour). Physics is composition-aware over the groups. ``cap_plane`` (origin / normal
+    / half / depth in the mesh's native frame) closes only the openings a user's manual
+    plane covers; ``cap`` (no plane) auto-fills every hole. Either makes the volume real,
+    not estimated. No per-part vertices — the viewport renders the real model client-side.
     """
     try:
         groups = _load_groups(mesh_path)
@@ -178,7 +207,24 @@ def bake_material_groups(mesh_path: str, cap: bool = False):
     if not groups:
         return None
 
-    if cap:
+    if cap_plane:
+        from cortex.bake.cap import cap_with_plane
+
+        capped: list[tuple[str, trimesh.Trimesh]] = []
+        for name, g in groups:
+            try:
+                g2, _n = cap_with_plane(
+                    g,
+                    cap_plane.get("origin", [0.0, 0.0, 0.0]),
+                    cap_plane.get("normal", [0.0, 0.0, 1.0]),
+                    cap_plane.get("half", 1.0),
+                    cap_plane.get("depth", 1.0),
+                )
+                capped.append((name, g2))
+            except Exception:
+                capped.append((name, g))
+        groups = capped
+    elif cap:
         for _, g in groups:
             _close_group(g)
 

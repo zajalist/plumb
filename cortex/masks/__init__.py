@@ -12,12 +12,12 @@ from typing import Optional
 
 from . import registry, store
 from .model import Mask, derive_legend, role_for
-from .registry import Asset, MaskProvider, catalog, compute, get_provider, providers, register
+from .registry import Asset, MaskProvider, all_providers, catalog, compute, get_provider, register
 
 __all__ = [
     "Mask", "role_for", "derive_legend",
     "store", "registry",
-    "Asset", "MaskProvider", "catalog", "compute", "get_provider", "providers", "register",
+    "Asset", "MaskProvider", "catalog", "compute", "get_provider", "all_providers", "register",
     "load_providers", "compute_for",
 ]
 

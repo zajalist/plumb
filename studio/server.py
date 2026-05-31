@@ -147,6 +147,7 @@ async def bake(
     profile: str = Form("rigid_prop"),
     decimate: int | None = Form(None),
     cap: bool = Form(False),
+    cap_plane: str | None = Form(None),
     extras: list[UploadFile] = File(default=[]),
 ) -> dict:
     """Run the real composition bake on an uploaded mesh and return its PAP + masks.
@@ -213,8 +214,11 @@ async def bake(
 
     asset_id = fn.rsplit(".", 1)[0]
     part_materials = json.loads(materials) if materials else None
+    plane = json.loads(cap_plane) if cap_plane else None
     try:
-        pap, parts = bake_asset_detailed(asset_id, path, part_materials=part_materials, profile=profile, cap=cap)
+        pap, parts = bake_asset_detailed(
+            asset_id, path, part_materials=part_materials, profile=profile, cap=cap, cap_plane=plane
+        )
     except Exception as e:  # bad mesh / decomposition failure — surface, don't crash
         msg = str(e)
         if fn.lower().endswith(".gltf") and ("No such file" in msg or ".bin" in msg):
@@ -307,6 +311,56 @@ async def open_wdf(doc: UploadFile = File(...)) -> dict:
     except WdfParseError as e:
         raise HTTPException(status_code=422, detail=f".wdf parse error: {e}") from e
     return asdict(parsed)
+
+
+# --------------------------------------------------------------------------- #
+# Projects — save/open a project bundling the .wdf semantics + the 3D models.
+# --------------------------------------------------------------------------- #
+@app.post("/project/save")
+async def project_save(
+    name: str = Form(...),
+    manifest: str = Form(...),
+    files: list[UploadFile] = File(default=[]),
+) -> dict:
+    """Save a project: the asset manifest (with PAPs) + the model files, plus a
+    generated project.wdf. ``files`` are named ``<asset_id>__<filename>``."""
+    from studio.project import save_project
+
+    assets = json.loads(manifest)
+    blobs: dict[str, bytes] = {}
+    for uf in files:
+        if uf.filename:
+            blobs[uf.filename] = await uf.read()
+    return save_project(name, assets, blobs)
+
+
+@app.get("/project/list")
+def project_list() -> dict:
+    from studio.project import list_projects
+
+    return {"projects": list_projects()}
+
+
+@app.get("/project/open")
+def project_open(name: str) -> dict:
+    from studio.project import load_project
+
+    data = load_project(name)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"project {name!r} not found")
+    return data
+
+
+@app.get("/project/file")
+def project_file(name: str, asset_id: str, file: str):
+    from fastapi.responses import FileResponse
+
+    from studio.project import model_file
+
+    path = model_file(name, asset_id, file)
+    if not path:
+        raise HTTPException(status_code=404, detail="model file not found")
+    return FileResponse(path, filename=os.path.basename(file))
 
 
 @app.post("/validate")

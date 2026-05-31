@@ -14,7 +14,8 @@ import { ReactFlowProvider } from '@xyflow/react'
 import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
 import Palette from './components/Palette'
 import { INITIAL_SCENE, type SceneState } from './lib/engine'
-import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health, type Verdict, type WdfDoc, type PAP } from './api'
+import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health,
+  saveProject, openProjectData, fetchProjectFile, type Verdict, type WdfDoc, type PAP, type CapPlane, type ProjectAsset } from './api'
 import './App.css'
 
 export default function App() {
@@ -193,16 +194,53 @@ export default function App() {
       : x))
   }, [sel])
 
-  // close-mesh: re-bake the selected mesh with hole-filling so open surfaces get capped
-  // and mass/volume become real (not estimated).
-  const onCloseMesh = useCallback(async () => {
-    if (!selected?.file) return
+  // Manual cap tool: the user places a plane in the viewport and resizes it to cover an
+  // opening; on apply we re-bake the mesh with that plane so only the targeted hole gets
+  // a flat lid and the mass/volume become real (not estimated).
+  const [capping, setCapping] = useState(false)
+  const onStartCap = useCallback(() => setCapping(true), [])
+  const onApplyCap = useCallback(async (plane: CapPlane) => {
+    if (!selected?.file) { setCapping(false); return }
     setBusy(true)
     try {
-      const pap = await bake(selected.file, { cap: true, profile: settings.profile, extras: selected.extras })
+      const pap = await bake(selected.file, { capPlane: plane, profile: settings.profile, extras: selected.extras })
       setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
-    } finally { setBusy(false) }
+    } finally { setBusy(false); setCapping(false) }
   }, [selected, settings])
+  useEffect(() => { setCapping(false) }, [sel])  // exit the cap tool when the asset changes
+
+  // Project save/open: bundle the .wdf semantics AND the real model files in one place.
+  const [projectName, setProjectName] = useState<string | null>(null)
+  const onSaveProject = useCallback(async (name: string) => {
+    const records: ProjectAsset[] = []
+    const files: { key: string; file: File }[] = []
+    for (const a of assets) {
+      if (!a.file) continue   // declared-only assets (from a .wdf) carry no model file
+      const all = [a.file, ...(a.extras ?? [])]
+      records.push({ id: a.id, name: a.name, main: a.file.name, files: all.map((f) => f.name),
+        profile: a.pap?.profile, masks: a.pap?.parts, pap: a.pap })
+      for (const f of all) files.push({ key: `${a.id}__${f.name}`, file: f })
+    }
+    await saveProject(name, records, files)
+    setProjectName(name)
+    setRecent(addRecent(name))
+  }, [assets])
+  const onOpenProject = useCallback(async (name: string) => {
+    const { manifest } = await openProjectData(name)
+    const restored: Asset[] = []
+    for (const rec of manifest.assets) {
+      const fetched = await Promise.all(rec.files.map((fn) => fetchProjectFile(name, rec.id, fn)))
+      const main = fetched.find((f) => f.name === rec.main) ?? fetched[0]
+      const extras = fetched.filter((f) => f !== main)
+      restored.push({ id: rec.id, name: rec.name, file: main, extras, pap: rec.pap,
+        status: rec.pap ? 'ok' : 'queued' })
+    }
+    setAssets(restored)
+    setSel(restored[0]?.id ?? null)
+    setProjectName(name)
+    setRecent(addRecent(name))
+    setScreen('editor')
+  }, [])
 
   const inspector = selected?.status === 'ok' && objId
     ? <Inspector pos={pos} setPos={setPos} verdict={verdict} busy={busy}
@@ -234,11 +272,13 @@ export default function App() {
       <IconDefs />
 
       <Menubar
-        projectName={wdf?.scene ? `${wdf.scene.name}.wdf` : 'untitled.wdf'}
+        projectName={projectName ? `${projectName}` : wdf?.scene ? `${wdf.scene.name}.wdf` : 'untitled'}
         assetCount={assets.length}
         onNew={startNew}
         onOpenWdf={onOpenFile}
         onImport={onAddFiles}
+        onSaveProject={onSaveProject}
+        onOpenProject={onOpenProject}
       />
 
       <GateStack verdict={verdict} />
@@ -250,9 +290,11 @@ export default function App() {
           onUpdate={(id, patch) => setAssets((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)))} />
         <Viewport name={selected?.name ?? ''} file={selected?.file} extras={selected?.extras}
           pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status}
-          onDropFiles={onAddFiles} />
+          onDropFiles={onAddFiles} capping={capping} onApplyCap={onApplyCap}
+          onExitCap={() => setCapping(false)} busy={busy} />
         <Properties pap={selected?.pap ?? null} footer={inspector}
-          onConfirm={onConfirmMaterials} onCloseMesh={onCloseMesh} onEditPap={onEditPap} busy={busy} declared={selected?.wdf} />
+          onConfirm={onConfirmMaterials} onCapOpenings={onStartCap} capping={capping}
+          onEditPap={onEditPap} busy={busy} declared={selected?.wdf} />
       </div>
 
       <div

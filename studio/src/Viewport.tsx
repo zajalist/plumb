@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
 import { Icon } from './Icons'
-import type { PAP, Part, Verdict } from './api'
+import type { CapPlane, PAP, Part, Verdict } from './api'
 
 const SAGE = 0x34c0ad, FAIL = 0xe0694f, IDLE = 0x5e676e, AMBER = 0xd9a84c
 const SOLID = '#3a4348'
@@ -21,6 +21,8 @@ type Refs = {
   grid: THREE.GridHelper
   meshHolder: THREE.Group     // placed assembly (moves with pos)
   content: THREE.Group        // the loaded model OR convex-part masks
+  model: THREE.Object3D | null   // the loaded model root (cap gizmo parents to this)
+  capGizmo: THREE.Group | null   // the manual cap-plane gizmo (child of model, native frame)
   forceGroup: THREE.Group     // gravity-arrow field (inertia/force view)
   gradMat: THREE.ShaderMaterial   // vertical force-gradient mask for the inertia view
   groups: Group[]             // material groups (or parts) for the masks view
@@ -73,11 +75,28 @@ function clearContent(r: Refs) {
   // The handful of blob URLs per load is a bounded leak the browser frees on unload.
   for (const g of r.groups) g.meshes.forEach((m) => (m.userData.maskMat as THREE.Material | undefined)?.dispose())
   r.groups = []
+  disposeCapGizmo(r)
+  r.model = null
   while (r.content.children.length) {
     const c = r.content.children[0]
     r.content.remove(c)
     c.traverse?.((o) => { const m = o as THREE.Mesh; m.geometry?.dispose?.() })
   }
+}
+
+// Tear down the cap-plane gizmo (detach from its parent + free its geometries/materials).
+function disposeCapGizmo(r: Refs) {
+  const g = r.capGizmo
+  if (!g) return
+  g.parent?.remove(g)
+  g.traverse((o) => {
+    const m = o as THREE.Mesh
+    m.geometry?.dispose?.()
+    const mat = m.material as THREE.Material | THREE.Material[] | undefined
+    if (Array.isArray(mat)) mat.forEach((x) => x.dispose?.())
+    else mat?.dispose?.()
+  })
+  r.capGizmo = null
 }
 
 // Frame camera + floor grid to the content so any mesh scale reads right.
@@ -140,6 +159,92 @@ function buildPartGroup(content: THREE.Group, parts: Part[]): Group[] {
     groups.push({ meshes: [mesh], orig: [orig], color: p.color, name: p.id })
   }
   return groups
+}
+
+// ---- manual cap-plane tool -------------------------------------------------
+// The gizmo is parented to the loaded model so its LOCAL transform is already in the
+// model's native coordinate frame — the same frame the bake loads the mesh in — so the
+// plane the user lines up by eye maps straight to the backend with no axis juggling.
+const CAP_TEAL = 0x34c0ad
+
+type CapState = { axis: 'x' | 'y' | 'z'; offset: number; sizeFrac: number }
+const CAP_AXES: ('x' | 'y' | 'z')[] = ['x', 'y', 'z']
+
+// The model's AABB expressed in the model's OWN local frame (native coords), so slider
+// ranges and the gizmo sit in the same frame we send to the backend.
+function modelLocalBox(model: THREE.Object3D): THREE.Box3 {
+  model.updateMatrixWorld(true)
+  const inv = new THREE.Matrix4().copy(model.matrixWorld).invert()
+  const box = new THREE.Box3()
+  const v = new THREE.Vector3()
+  model.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh || !m.geometry) return
+    const g = m.geometry as THREE.BufferGeometry
+    if (!g.boundingBox) g.computeBoundingBox()
+    const bb = g.boundingBox
+    if (!bb) return
+    for (const xi of [bb.min.x, bb.max.x]) for (const yi of [bb.min.y, bb.max.y]) for (const zi of [bb.min.z, bb.max.z]) {
+      v.set(xi, yi, zi).applyMatrix4(m.matrixWorld).applyMatrix4(inv)
+      box.expandByPoint(v)
+    }
+  })
+  return box
+}
+
+// Build the gizmo: a translucent square lid + a crisp border + a normal arrow. Sizing /
+// placement is set later by updateCapGizmo so this just assembles the parts.
+function buildCapGizmo(): THREE.Group {
+  const g = new THREE.Group()
+  const lid = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ color: CAP_TEAL, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }),
+  )
+  lid.name = 'lid'
+  g.add(lid)
+  const border = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.PlaneGeometry(1, 1)),
+    new THREE.LineBasicMaterial({ color: CAP_TEAL, transparent: true, opacity: 0.9, depthTest: false }),
+  )
+  border.name = 'border'
+  border.renderOrder = 999
+  g.add(border)
+  const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(), 1, CAP_TEAL, 0.001, 0.001)
+  arrow.name = 'arrow'
+  g.add(arrow)
+  g.renderOrder = 998
+  return g
+}
+
+// Derive the cap plane (origin/normal/half in native coords) from the slider state.
+function capPlaneFrom(box: THREE.Box3, st: CapState): { origin: THREE.Vector3; normal: THREE.Vector3; half: number } {
+  const min = box.min, max = box.max
+  const center = box.getCenter(new THREE.Vector3())
+  const idx = CAP_AXES.indexOf(st.axis)
+  const span = max.getComponent(idx) - min.getComponent(idx)
+  const origin = center.clone()
+  origin.setComponent(idx, min.getComponent(idx) + st.offset * span)
+  const normal = new THREE.Vector3()
+  normal.setComponent(idx, 1)
+  // in-plane extent = the larger of the two non-normal axes
+  const others = [0, 1, 2].filter((i) => i !== idx)
+  const inPlane = Math.max(max.getComponent(others[0]) - min.getComponent(others[0]),
+    max.getComponent(others[1]) - min.getComponent(others[1]), 1e-4)
+  const half = Math.max(st.sizeFrac * inPlane, 1e-4)
+  return { origin, normal, half }
+}
+
+// Position/orient/scale the gizmo (in the model's local frame) from the slider state.
+function updateCapGizmo(g: THREE.Group, box: THREE.Box3, st: CapState) {
+  const { origin, normal, half } = capPlaneFrom(box, st)
+  g.position.copy(origin)
+  g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal)
+  const lid = g.getObjectByName('lid') as THREE.Mesh | undefined
+  const border = g.getObjectByName('border') as THREE.LineSegments | undefined
+  lid?.scale.set(half * 2, half * 2, 1)
+  border?.scale.set(half * 2, half * 2, 1)
+  const arrow = g.getObjectByName('arrow') as THREE.ArrowHelper | undefined
+  if (arrow) { const len = half * 0.9; arrow.setLength(len, len * 0.35, len * 0.22) }
 }
 
 // A vertical gradient material (cool teal at the top → warm amber at the base) keyed
@@ -211,11 +316,15 @@ function updateForce(r: Refs, view: 'textured' | 'masks' | 'inertia') {
 /** Dark device stage: renders the real textured model (materials/textures intact),
  *  with a textured ↔ masks toggle that colours each material group. Plus the verdict
  *  viz (CoM, plumb, support footprint). Canonical is Z-up; world tilted so Z reads up. */
-export function Viewport({ name, file, extras, pap, pos, verdict, status, onDropFiles }: {
+export function Viewport({ name, file, extras, pap, pos, verdict, status, onDropFiles, capping, onApplyCap, onExitCap, busy }: {
   name: string; file?: File | null; extras?: File[]
   pap: PAP | null; pos: number[]; verdict: Verdict | null
   status?: 'queued' | 'converting' | 'baking' | 'ok' | 'error' | 'declared'
   onDropFiles?: (files: File[]) => void
+  capping?: boolean                       // the manual cap-plane tool is active
+  onApplyCap?: (plane: CapPlane) => void  // re-bake the mesh with the placed cap plane
+  onExitCap?: () => void                  // leave the cap tool without applying
+  busy?: boolean                          // a bake is in flight
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const refs = useRef<Refs | null>(null)
@@ -224,6 +333,9 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
   const [hasContent, setHasContent] = useState(false)
   const [dropping, setDropping] = useState(false)
   const [camView, setCamView] = useState<'top' | 'front' | 'side' | 'persp'>('persp')
+  // manual cap-plane tool state (axis = native frame; offset 0..1 along it; size = lid)
+  const [cap, setCap] = useState<CapState>({ axis: 'y', offset: 0.06, sizeFrac: 0.6 })
+  const capBox = useRef<THREE.Box3 | null>(null)
 
   const emptyMsg = hasContent ? null
     : status === 'baking' ? 'decomposing…'
@@ -331,7 +443,7 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
       controls.update()
     }
 
-    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, forceGroup, gradMat, groups: [], urls: [], footprint, comDot, plumb, landing, setCam, raf: 0 }
+    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, model: null, capGizmo: null, forceGroup, gradMat, groups: [], urls: [], footprint, comDot, plumb, landing, setCam, raf: 0 }
     refs.current = r
     tick()
     return () => {
@@ -356,6 +468,7 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
       loadModel(file, extras ?? [], r.urls).then((model) => {
         if (cancelled || refs.current !== r) return
         r.content.add(model)
+        r.model = model
         r.groups = buildGroups(model)
         frame(r)
         updateForce(r, view)
@@ -404,6 +517,47 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
     ;(r.landing.material as THREE.MeshBasicMaterial).color.setHex(col)
   }, [pos, verdict, pap])
 
+  // ---- manual cap tool: build / tear down the plane gizmo ----
+  useEffect(() => {
+    const r = refs.current
+    if (!r) return
+    if (capping && r.model && hasContent) {
+      disposeCapGizmo(r)
+      const box = modelLocalBox(r.model)
+      capBox.current = box
+      const g = buildCapGizmo()
+      r.model.add(g)
+      r.capGizmo = g
+      const size = box.getSize(new THREE.Vector3())
+      const tall: 'x' | 'y' | 'z' = size.x >= size.y && size.x >= size.z ? 'x' : size.y >= size.z ? 'y' : 'z'
+      const init: CapState = { axis: tall, offset: 0.06, sizeFrac: 0.6 }
+      setCap(init)
+      updateCapGizmo(g, box, init)
+      r.controls.autoRotate = false
+    } else {
+      disposeCapGizmo(r)
+      capBox.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capping, hasContent])
+
+  // ---- manual cap tool: reposition the gizmo when the sliders move ----
+  useEffect(() => {
+    const r = refs.current
+    if (!r || !r.capGizmo || !capBox.current || !capping) return
+    updateCapGizmo(r.capGizmo, capBox.current, cap)
+  }, [cap, capping])
+
+  const applyCap = () => {
+    const box = capBox.current
+    if (!box || !onApplyCap) return
+    const { origin, normal, half } = capPlaneFrom(box, cap)
+    const size = box.getSize(new THREE.Vector3())
+    const maxDim = Math.max(size.x, size.y, size.z, 1e-4)
+    const depth = Math.max(half * 0.6, maxDim * 0.04)
+    onApplyCap({ origin: [origin.x, origin.y, origin.z], normal: [normal.x, normal.y, normal.z], half, depth })
+  }
+
   return (
     <section className="pane viewport">
       <header>
@@ -418,7 +572,12 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
       </header>
       <div
         className={`stage${dropping ? ' dropping' : ''}`}
-        onDragOver={onDropFiles ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; if (!dropping) setDropping(true) } : undefined}
+        onDragOver={onDropFiles ? (e) => {
+          // only react to genuine file drags — not the browser's native
+          // selection/element drag that an orbit click-drag can kick off
+          if (!Array.from(e.dataTransfer.types).includes('Files')) return
+          e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; if (!dropping) setDropping(true)
+        } : undefined}
         onDragLeave={onDropFiles ? (e) => { if (e.currentTarget === e.target) setDropping(false) } : undefined}
         onDrop={onDropFiles ? (e) => {
           e.preventDefault(); setDropping(false)
@@ -440,17 +599,49 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
             </button>
           ))}
         </div>
-        <div className="crop tl" /><div className="crop tr" /><div className="crop bl" /><div className="crop br" />
         <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
         {emptyMsg && <div className="emptyvp">{emptyMsg}</div>}
         {dropping && <div className="dropover"><Icon name="import" /><span>Drop to bake</span></div>}
-        {view === 'inertia' && hasContent && pap && (
+        {view === 'inertia' && hasContent && pap && !capping && (
           <div className="inertia-info">
             <div className="ii-head"><Icon name="mass" /><span>Inertia</span></div>
             <div className="ii-row"><span className="ii-k">Mass</span><span className="ii-v">{pap.physical.mass_kg.toFixed(1)} kg</span></div>
             <div className="ii-row"><span className="ii-k">CoM height</span><span className="ii-v">{canonCom(pap.physical.com, name)[2].toFixed(3)} m</span></div>
             <div className="ii-row"><span className="ii-k">Gyration</span><span className="ii-v">{gyration(pap)}</span></div>
             <div className="ii-row"><span className="ii-k">Hollow</span><span className="ii-v">{pap.physical.hollow ? 'yes' : 'no'}</span></div>
+          </div>
+        )}
+
+        {capping && hasContent && (
+          <div className="cap-panel" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="cap-head">
+              <span className="cap-title"><Icon name="seal" />Cap opening</span>
+              <button className="cap-x" title="Done" onClick={() => onExitCap?.()}>✕</button>
+            </div>
+            <p className="cap-hint">Aim the plane over an opening, size it to cover the hole, then place it down.</p>
+            <div className="cap-field">
+              <label>Orientation</label>
+              <div className="cap-axes">
+                {CAP_AXES.map((a) => (
+                  <button key={a} className={cap.axis === a ? 'on' : ''}
+                    onClick={() => setCap((c) => ({ ...c, axis: a }))}>{a.toUpperCase()}</button>
+                ))}
+              </div>
+            </div>
+            <div className="cap-field">
+              <label>Position <span className="cap-num">{Math.round(cap.offset * 100)}%</span></label>
+              <input type="range" min={0} max={1} step={0.005} value={cap.offset}
+                onChange={(e) => setCap((c) => ({ ...c, offset: Number(e.target.value) }))} />
+            </div>
+            <div className="cap-field">
+              <label>Lid size <span className="cap-num">{Math.round(cap.sizeFrac * 100)}%</span></label>
+              <input type="range" min={0.05} max={1.2} step={0.01} value={cap.sizeFrac}
+                onChange={(e) => setCap((c) => ({ ...c, sizeFrac: Number(e.target.value) }))} />
+            </div>
+            <div className="cap-actions">
+              <button className="cap-cancel" onClick={() => onExitCap?.()} disabled={busy}>Cancel</button>
+              <button className="cap-go" onClick={applyCap} disabled={busy}>{busy ? 'Capping…' : 'Place & cap'}</button>
+            </div>
           </div>
         )}
       </div>
