@@ -9,7 +9,9 @@ returned PAP / Verdict JSON (mirrors of the frozen ``contracts.py``). Run with::
 from __future__ import annotations
 
 import json
+import os
 import tempfile
+import uuid
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +26,8 @@ app.add_middleware(
 # assets. Reset on restart; the studio is the source of truth for the session, the
 # backend bakes + remembers + validates.
 _ASSETS: dict = {}
+# token -> converted .glb path, for batch .uasset conversion (one UE boot, bake later).
+_GLB_CACHE: dict[str, str] = {}
 
 
 def _world():
@@ -73,8 +77,10 @@ def _cortex_available() -> bool:
 
 @app.get("/health")
 def health() -> dict:
-    """Liveness + whether the real cortex is importable in this process."""
-    return {"ok": True, "cortex": _cortex_available()}
+    """Liveness + whether the real cortex is importable and Unreal convert is wired."""
+    from studio.uasset import ue_status
+
+    return {"ok": True, "cortex": _cortex_available(), "ue": ue_status()}
 
 
 @app.post("/bake")
@@ -89,19 +95,94 @@ async def bake(mesh: UploadFile = File(...), materials: str | None = Form(None))
     """
     from cortex.bake import bake_asset_detailed
 
+    from studio.uasset import convert_uasset, is_uasset, ue_status
+
+    fn = mesh.filename or "asset.obj"
     raw = await mesh.read()
-    suffix = "." + (mesh.filename or "asset.obj").rsplit(".", 1)[-1]
+    suffix = "." + fn.rsplit(".", 1)[-1]
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
         f.write(raw)
         path = f.name
 
-    asset_id = (mesh.filename or "asset").rsplit(".", 1)[0]
+    # Unreal .uasset → headless glTF first (then bake the glb like any other mesh).
+    if is_uasset(fn):
+        if not ue_status()["available"]:
+            raise HTTPException(
+                status_code=503,
+                detail="Unreal not configured (set PLUMB_UE_CMD + PLUMB_UE_PROJECT) — import .obj/.glb/.stl instead",
+            )
+        glb = convert_uasset(fn, path)
+        if not glb:
+            raise HTTPException(status_code=422, detail=f"Unreal produced no mesh for {fn}")
+        path = glb
+
+    asset_id = fn.rsplit(".", 1)[0]
     part_materials = json.loads(materials) if materials else None
     try:
         pap, parts = bake_asset_detailed(asset_id, path, part_materials=part_materials)
     except Exception as e:  # bad mesh / decomposition failure — surface, don't crash
         raise HTTPException(status_code=422, detail=f"bake failed: {e}") from e
 
+    _ASSETS[asset_id] = pap
+    return {**pap.model_dump(), "parts": parts}
+
+
+@app.post("/convert")
+async def convert(files: list[UploadFile] = File(...)) -> dict:
+    """Batch-convert dropped ``.uasset`` files to glTF in ONE Unreal boot.
+
+    Returns ``{results: [{name, token, ok}]}``; bake each ``token`` via
+    ``/bake_cached`` (fast — the conversion already happened). Non-uasset files are
+    ignored here (the UI bakes those directly through ``/bake``).
+    """
+    from studio.uasset import convert_uassets, is_uasset, ue_status
+
+    if not ue_status()["available"]:
+        raise HTTPException(status_code=503, detail="Unreal not configured (PLUMB_UE_CMD + PLUMB_UE_PROJECT)")
+
+    staged: dict[str, str] = {}
+    for uf in files:
+        if not is_uasset(uf.filename or ""):
+            continue
+        raw = await uf.read()
+        with tempfile.NamedTemporaryFile(suffix=".uasset", delete=False) as f:
+            f.write(raw)
+            staged[uf.filename] = f.name
+    if not staged:
+        raise HTTPException(status_code=422, detail="no .uasset files in request")
+
+    converted = convert_uassets(staged)
+    results = []
+    for name, glb in converted.items():
+        if glb:
+            token = uuid.uuid4().hex
+            _GLB_CACHE[token] = glb
+            results.append({"name": name, "token": token, "ok": True})
+        else:
+            results.append({"name": name, "token": None, "ok": False})
+    return {"results": results}
+
+
+class CachedBake(BaseModel):
+    """Bake a previously-converted asset by its conversion ``token``."""
+
+    token: str
+    materials: dict | None = None
+
+
+@app.post("/bake_cached")
+def bake_cached(b: CachedBake) -> dict:
+    """Bake a glb already produced by ``/convert`` (no re-conversion)."""
+    from cortex.bake import bake_asset_detailed
+
+    glb = _GLB_CACHE.get(b.token)
+    if not glb or not os.path.exists(glb):
+        raise HTTPException(status_code=404, detail="unknown or expired conversion token")
+    asset_id = os.path.splitext(os.path.basename(glb))[0]
+    try:
+        pap, parts = bake_asset_detailed(asset_id, glb, part_materials=b.materials)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"bake failed: {e}") from e
     _ASSETS[asset_id] = pap
     return {**pap.model_dump(), "parts": parts}
 
