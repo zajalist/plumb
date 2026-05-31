@@ -1,9 +1,9 @@
-// The real PLUMB mark (the inlined #logo aperture) + wordmark.
+// The PLUMB mark (rosette logo, served from /public) + wordmark.
 export function Brand() {
   return (
     <div className="brand">
-      <svg width="26" height="24" aria-label="PLUMB"><use href="#logo" /></svg>
-      <span className="word">PLUMB</span>
+      <img className="logomark" src="/logo.svg" alt="Plumb" />
+      <span className="word">Plumb</span>
     </div>
   )
 }

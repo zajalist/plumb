@@ -2,6 +2,13 @@
 const BASE = (import.meta as any).env?.VITE_API ?? 'http://localhost:8000'
 
 export type MaterialPart = { part: string; mat: string; conf: number }
+// A baked per-part mask (augmented /bake field, outside the frozen contract).
+export type Part = {
+  id: string; idx: number
+  material: string; conf: number; source: string; confirmed: boolean
+  volume_m3: number; vol_frac: number; mass_kg: number; mass_frac: number
+  hollow: boolean; centroid: number[]; extent: number[]; color: string
+}
 export type PAP = {
   asset_id: string
   profile: string
@@ -9,7 +16,9 @@ export type PAP = {
   semantics: { cls: string; up: number[]; front: number[]; materials: MaterialPart[]; conf: number }
   physical: { mass_kg: number; com: number[]; inertia: number[][]; hollow: boolean; conf: number }
   structural: { support_footprint: number[][]; max_load_kg_est: number | null; experimental: boolean }
+  provenance?: { auto: boolean; edited_fields: string[]; locked: string[] }
   rest_states: string[]
+  parts?: Part[]
 }
 export type Health = { ok: boolean; cortex: boolean }
 

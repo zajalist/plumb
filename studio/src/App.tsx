@@ -6,12 +6,22 @@ import { Viewport } from './Viewport'
 import { Properties } from './Properties'
 import { Inspector } from './Inspector'
 import { GateStack } from './GateStack'
-import ConstraintGraph from './ConstraintGraph' // Fara's — unchanged
+import { Splash } from './Splash'
+import { getRecent, addRecent, type RecentEntry } from './recent'
+import { ReactFlowProvider } from '@xyflow/react'
+import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
+import Palette from './components/Palette'
+import { INITIAL_SCENE, type SceneState } from './lib/engine'
 import { bake, validate, repair, commit, type Verdict } from './api'
-import { attempts } from './verdicts'
 import './App.css'
 
 export default function App() {
+  // launch flow: Splash → IDE (WP-1)
+  const [started, setStarted] = useState(false)
+  const [recent, setRecent] = useState<RecentEntry[]>(() => getRecent())
+  const startNew = useCallback(() => setStarted(true), [])
+  const openProject = useCallback((name: string) => { setRecent(addRecent(name)); setStarted(true) }, [])
+
   const [assets, setAssets] = useState<Asset[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const selected = assets.find((a) => a.id === sel) ?? null
@@ -20,6 +30,10 @@ export default function App() {
   const [pos, setPos] = useState<number[]>([0, 0, 0.4])
   const [verdict, setVerdict] = useState<Verdict | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // node-editor scene (Fara's editable constraint graph; its own live "knob")
+  const [scene, setScene] = useState<SceneState>(INITIAL_SCENE)
+  const setBronzeX = useCallback((x: number) => setScene((s) => ({ ...s, bronzeX: x })), [])
 
   // reset the loop when the selected asset changes
   useEffect(() => { setPos([0, 0, 0.4]); setVerdict(null) }, [sel])
@@ -63,10 +77,31 @@ export default function App() {
     try { await commit(objId, pos) } finally { setBusy(false) }
   }, [objId, pos])
 
+  // material-confirm loop: re-bake the selected mesh with the confirmed per-part
+  // materials (now they drive physics) and lock them into the PAP.
+  const onConfirmMaterials = useCallback(async (materials: Record<string, string>) => {
+    if (!selected?.file) return
+    setBusy(true)
+    try {
+      const pap = await bake(selected.file, materials)
+      setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
+    } finally { setBusy(false) }
+  }, [selected])
+
   const inspector = selected?.status === 'ok' && objId
     ? <Inspector pos={pos} setPos={setPos} verdict={verdict} busy={busy}
         onValidate={onValidate} onRepair={onRepair} onCommit={onCommit} />
     : undefined
+
+  if (!started) {
+    return (
+      <>
+        <IconDefs />
+        <Splash recent={recent} onNew={startNew}
+          onOpen={(f) => openProject(f.name)} onOpenRecent={(e) => openProject(e.name)} />
+      </>
+    )
+  }
 
   return (
     <div className="app">
@@ -96,7 +131,8 @@ export default function App() {
         <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
         <Viewport file={selected?.file ?? null} name={selected?.name ?? ''}
           pap={selected?.pap ?? null} pos={pos} verdict={verdict} />
-        <Properties pap={selected?.pap ?? null} footer={inspector} />
+        <Properties pap={selected?.pap ?? null} footer={inspector}
+          onConfirm={onConfirmMaterials} busy={busy} />
       </div>
 
       <div className="nodeeditor">
@@ -104,7 +140,10 @@ export default function App() {
           <Icon name="reach" /><span className="t">Node editor</span><span className="who">Fara</span>
         </header>
         <div className="ne">
-          <ConstraintGraph attempt={attempts[0]} />
+          <ReactFlowProvider>
+            <Palette />
+            <ConstraintGraph scene={scene} setBronzeX={setBronzeX} />
+          </ReactFlowProvider>
         </div>
       </div>
     </div>

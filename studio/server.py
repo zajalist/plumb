@@ -79,12 +79,15 @@ def health() -> dict:
 
 @app.post("/bake")
 async def bake(mesh: UploadFile = File(...), materials: str | None = Form(None)) -> dict:
-    """Run the real composition bake on an uploaded mesh and return its PAP.
+    """Run the real composition bake on an uploaded mesh and return its PAP + masks.
 
     ``materials`` is an optional JSON map (part key -> material name) forwarded to
-    ``cortex.bake.bake_asset``; absent => a pure auto-bake (every part ``default``).
+    ``cortex.bake``; absent => a pure auto-bake (default-density physics + a
+    low-confidence material guess per part). The response is the PAP plus a
+    ``parts`` array: the per-part masks (volume fraction, displayed material +
+    confidence, mask colour, hollowness) the studio renders and the human confirms.
     """
-    from cortex.bake import bake_asset
+    from cortex.bake import bake_asset_detailed
 
     raw = await mesh.read()
     suffix = "." + (mesh.filename or "asset.obj").rsplit(".", 1)[-1]
@@ -95,12 +98,12 @@ async def bake(mesh: UploadFile = File(...), materials: str | None = Form(None))
     asset_id = (mesh.filename or "asset").rsplit(".", 1)[0]
     part_materials = json.loads(materials) if materials else None
     try:
-        pap = bake_asset(asset_id, path, part_materials=part_materials)
+        pap, parts = bake_asset_detailed(asset_id, path, part_materials=part_materials)
     except Exception as e:  # bad mesh / decomposition failure — surface, don't crash
         raise HTTPException(status_code=422, detail=f"bake failed: {e}") from e
 
     _ASSETS[asset_id] = pap
-    return pap.model_dump()
+    return {**pap.model_dump(), "parts": parts}
 
 
 @app.post("/validate")
