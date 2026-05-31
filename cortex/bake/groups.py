@@ -23,26 +23,35 @@ from cortex.bake.materials import MASK_PALETTE
 
 __all__ = ["bake_material_groups", "material_density"]
 
-# Density (kg/m³) by material-name keyword — honest, name-driven priors.
+# (keywords, bucket, density kg/m³, is_shell). ``is_shell`` materials are modelled as
+# thin surfaces (leaf cards, cloth) — their mass is area × a few-mm thickness, not the
+# convex-hull volume, which would absurdly dominate (a tree is wood, not leaves).
 _DENSITY = [
-    (("leaf", "leaves", "foliage", "frond", "needle", "bush"), "foliage", 250.0),
-    (("trunk", "branch", "bark", "wood", "log", "timber", "plank", "oak", "pine"), "wood", 700.0),
-    (("metal", "steel", "iron", "bronze", "brass", "alumin", "copper", "chrome"), "metal", 7800.0),
-    (("stone", "rock", "granite", "marble", "concrete", "brick", "ceramic"), "stone", 2500.0),
-    (("glass", "crystal", "window"), "glass", 2500.0),
-    (("plastic", "resin", "rubber", "vinyl"), "plastic", 1100.0),
-    (("cloth", "fabric", "leather", "canvas", "cushion", "carpet"), "fabric", 400.0),
-    (("water", "liquid"), "water", 1000.0),
+    (("leaf", "leaves", "foliage", "frond", "needle", "bush"), "foliage", 500.0, True),
+    (("trunk", "branch", "bark", "wood", "log", "timber", "plank", "oak", "pine"), "wood", 700.0, False),
+    (("metal", "steel", "iron", "bronze", "brass", "alumin", "copper", "chrome"), "metal", 7800.0, False),
+    (("stone", "rock", "granite", "marble", "concrete", "brick", "ceramic"), "stone", 2500.0, False),
+    (("glass", "crystal", "window"), "glass", 2500.0, False),
+    (("plastic", "resin", "rubber", "vinyl"), "plastic", 1100.0, False),
+    (("cloth", "fabric", "leather", "canvas", "cushion", "carpet", "curtain"), "fabric", 400.0, True),
+    (("water", "liquid"), "water", 1000.0, False),
 ]
+_SHELL_THICKNESS_M = 0.003  # 3 mm — leaf-card / cloth thickness for shell mass
+
+
+def _material_info(name: str | None) -> tuple[str, float, bool]:
+    """Map a material name to ``(bucket, density, is_shell)``; ``("default", 1000, False)``."""
+    n = (name or "").lower()
+    for keys, mat, rho, shell in _DENSITY:
+        if any(k in n for k in keys):
+            return mat, rho, shell
+    return "default", 1000.0, False
 
 
 def material_density(name: str | None) -> tuple[str, float]:
-    """Map a material name to a (bucket, density) prior; ``("default", 1000)`` if unknown."""
-    n = (name or "").lower()
-    for keys, mat, rho in _DENSITY:
-        if any(k in n for k in keys):
-            return mat, rho
-    return "default", 1000.0
+    """``(bucket, density)`` for a material name (back-compat helper)."""
+    mat, rho, _ = _material_info(name)
+    return mat, rho
 
 
 def _load_groups(mesh_path: str) -> list[tuple[str, trimesh.Trimesh]]:
@@ -60,18 +69,42 @@ def _load_groups(mesh_path: str) -> list[tuple[str, trimesh.Trimesh]]:
     return groups if len(groups) >= 2 else []
 
 
-def _group_volume(geo: trimesh.Trimesh) -> float:
-    """Watertight volume, else a convex-hull estimate (open surfaces like leaf cards)."""
+def _group_volume(geo: trimesh.Trimesh, is_shell: bool) -> float:
+    """Volume (m³) for a group: shells → area × thickness; solids → watertight/hull."""
+    if is_shell:
+        try:
+            return float(geo.area) * _SHELL_THICKNESS_M
+        except Exception:
+            return 0.0
     try:
-        if geo.is_watertight and abs(geo.volume) > 1e-9:
+        if geo.is_watertight and abs(geo.volume) > 1e-12:
             return float(abs(geo.volume))
     except Exception:
         pass
     try:
-        return float(abs(geo.convex_hull.volume)) * 0.25
+        return float(abs(geo.convex_hull.volume)) * 0.5
     except Exception:
         ext = geo.bounding_box.extents
-        return float(ext[0] * ext[1] * ext[2]) * 0.1
+        return float(ext[0] * ext[1] * ext[2]) * 0.2
+
+
+def _unit_scale(combined: trimesh.Trimesh) -> float:
+    """Detect a scale to bring an off-unit model (cm/mm) into plausible metres.
+
+    glTF/FBX asset packs vary (cm is common). If the largest dimension already sits in
+    a plausible prop range we leave it; otherwise we try the standard unit factors and
+    pick the one that lands it in range. Conservative: returns 1.0 if nothing fits.
+    """
+    try:
+        d = float(max(combined.bounding_box.extents))
+    except Exception:
+        return 1.0
+    if d <= 0 or 0.02 <= d <= 25.0:
+        return 1.0
+    for s in (0.01, 0.001, 0.0001, 10.0, 100.0):
+        if 0.02 <= d * s <= 25.0:
+            return s
+    return 1.0
 
 
 def bake_material_groups(mesh_path: str):
@@ -89,10 +122,16 @@ def bake_material_groups(mesh_path: str):
     if not groups:
         return None
 
+    # Normalise off-unit models (cm/mm) to metres so mass/CoM read true.
+    scale = _unit_scale(trimesh.util.concatenate([g for _, g in groups]))
+    if scale != 1.0:
+        for _, g in groups:
+            g.apply_scale(scale)
     combined = trimesh.util.concatenate([g for _, g in groups])
-    vols = [_group_volume(g) for _, g in groups]
-    buckets = [material_density(n) for n, _ in groups]
-    masses = [v * rho for v, (_, rho) in zip(vols, buckets)]
+
+    infos = [_material_info(n) for n, _ in groups]
+    vols = [_group_volume(g, info[2]) for (_, g), info in zip(groups, infos)]
+    masses = [v * info[1] for v, info in zip(vols, infos)]
     coms = [np.asarray(g.center_mass, dtype=float) for _, g in groups]
 
     total_mass = float(sum(masses)) or 1e-9
@@ -102,9 +141,9 @@ def bake_material_groups(mesh_path: str):
     com /= total_mass
 
     inertia = np.zeros((3, 3))
-    for (_, g), (_, rho), m, c in zip(groups, buckets, masses, coms):
+    for (_, g), info, m, c in zip(groups, infos, masses, coms):
         try:
-            g.density = rho
+            g.density = info[1]
             ip = np.asarray(g.moment_inertia, dtype=float)
         except Exception:
             ip = np.zeros((3, 3))
@@ -129,7 +168,7 @@ def bake_material_groups(mesh_path: str):
 
     total_v = float(sum(vols)) or 1e-9
     masks = []
-    for i, ((name, g), v, (mat, _rho), m) in enumerate(zip(groups, vols, buckets, masses)):
+    for i, ((name, g), v, (mat, _rho, _shell), m) in enumerate(zip(groups, vols, infos, masses)):
         masks.append({
             "id": name,
             "idx": i,
