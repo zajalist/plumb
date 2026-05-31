@@ -235,7 +235,8 @@ export default function App() {
       <div className="row">
         <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
         <Viewport name={selected?.name ?? ''} file={selected?.file} extras={selected?.extras}
-          pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status} />
+          pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status}
+          onDropFiles={onAddFiles} />
         <Properties pap={selected?.pap ?? null} footer={inspector}
           onConfirm={onConfirmMaterials} busy={busy} declared={selected?.wdf} />
       </div>

@@ -3,12 +3,14 @@ import { useRef, useState } from 'react'
 // A working Gaea-style numeric field: a recessed bar with a teal fill, scrubbed by
 // dragging horizontally; a plain click (no drag) drops into a typed input. Used for
 // the editable placement axes (mass/volume in Properties stay read-only — derived).
-export function DragField({ value, onChange, min = -2, max = 2, step = 0.01 }: {
+export function DragField({ value, onChange, min = -2, max = 2, step = 0.01, decimals = 2, unit }: {
   value: number
   onChange: (v: number) => void
   min?: number
   max?: number
   step?: number
+  decimals?: number
+  unit?: string
 }) {
   const [editing, setEditing] = useState(false)
   const drag = useRef<{ x: number; v: number; moved: boolean } | null>(null)
@@ -50,7 +52,8 @@ export function DragField({ value, onChange, min = -2, max = 2, step = 0.01 }: {
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
     >
       <span className="fill" style={{ width: `${pct}%` }} />
-      <span className="dv">{value.toFixed(2)}</span>
+      <span className="dv">{value.toFixed(decimals)}</span>
+      {unit && <span className="du">{unit}</span>}
     </div>
   )
 }

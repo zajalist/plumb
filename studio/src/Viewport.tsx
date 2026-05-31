@@ -21,6 +21,7 @@ type Refs = {
   grid: THREE.GridHelper
   meshHolder: THREE.Group     // placed assembly (moves with pos)
   content: THREE.Group        // the loaded model OR convex-part masks
+  inertiaGroup: THREE.Group   // inertia ellipsoid + axes + gravity (physics view)
   groups: Group[]             // material groups (or parts) for the masks view
   urls: string[]              // blob URLs to revoke
   footprint: THREE.LineLoop
@@ -137,19 +138,83 @@ function buildPartGroup(content: THREE.Group, parts: Part[]): Group[] {
   return groups
 }
 
+// Jacobi eigendecomposition of a symmetric 3×3 (for the inertia tensor). Returns
+// principal moments (values) + principal axes (vectors, as columns).
+function symEig3(M: number[][]): { values: number[]; vectors: number[][] } {
+  const a = M.map((row) => row.slice())
+  const v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+  for (let iter = 0; iter < 60; iter++) {
+    let p = 0, q = 1, max = Math.abs(a[0][1])
+    if (Math.abs(a[0][2]) > max) { max = Math.abs(a[0][2]); p = 0; q = 2 }
+    if (Math.abs(a[1][2]) > max) { max = Math.abs(a[1][2]); p = 1; q = 2 }
+    if (max < 1e-14) break
+    const phi = 0.5 * Math.atan2(2 * a[p][q], a[q][q] - a[p][p])
+    const c = Math.cos(phi), s = Math.sin(phi)
+    for (let k = 0; k < 3; k++) { const kp = a[k][p], kq = a[k][q]; a[k][p] = c * kp - s * kq; a[k][q] = s * kp + c * kq }
+    for (let k = 0; k < 3; k++) { const pk = a[p][k], qk = a[q][k]; a[p][k] = c * pk - s * qk; a[q][k] = s * pk + c * qk }
+    for (let k = 0; k < 3; k++) { const kp = v[k][p], kq = v[k][q]; v[k][p] = c * kp - s * kq; v[k][q] = s * kp + c * kq }
+  }
+  return {
+    values: [a[0][0], a[1][1], a[2][2]],
+    vectors: [[v[0][0], v[1][0], v[2][0]], [v[0][1], v[1][1], v[2][1]], [v[0][2], v[1][2], v[2][2]]],
+  }
+}
+
+// The mass distribution made visible: the equivalent-inertia ellipsoid at the CoM
+// (semi-axes solved from the inertia tensor), its principal axes, and the gravity
+// vector. Long axis = mass spread that way; short axis = compact / hard to topple.
+function buildInertia(group: THREE.Group, pap: PAP) {
+  while (group.children.length) {
+    const c = group.children[0] as THREE.Mesh
+    group.remove(c); c.geometry?.dispose?.(); (c.material as THREE.Material)?.dispose?.()
+  }
+  const I = pap.physical.inertia, m = pap.physical.mass_kg, com = pap.physical.com ?? [0, 0, 0]
+  const ok = Array.isArray(I) && I.length === 3 && I.every((r) => r?.length === 3) && I.flat().some((x) => Math.abs(x) > 1e-9)
+  if (!ok || m <= 0) return
+  const { values, vectors } = symEig3(I)
+  const S = 2.5 * (values[0] + values[1] + values[2]) / m
+  const semi = [0, 1, 2].map((i) => Math.sqrt(Math.max(1e-5, S - (5 * values[i]) / m)))
+  const span = Math.max(...semi, 1e-3)
+
+  const ell = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 36, 24),
+    new THREE.MeshStandardMaterial({ color: 0x34c0ad, transparent: true, opacity: 0.26, roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide, depthWrite: false }),
+  )
+  ell.scale.set(semi[0], semi[1], semi[2])
+  ell.position.set(com[0], com[1], com[2])
+  const e0 = new THREE.Vector3(...vectors[0]).normalize()
+  const e1 = new THREE.Vector3(...vectors[1]).normalize()
+  const e2 = new THREE.Vector3(...vectors[2]).normalize()
+  ell.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(e0, e1, e2))
+  group.add(ell)
+
+  // principal axes
+  const c0 = new THREE.Vector3(com[0], com[1], com[2])
+  ;[[e0, semi[0]], [e1, semi[1]], [e2, semi[2]]].forEach(([dir, len]) => {
+    group.add(new THREE.ArrowHelper(dir as THREE.Vector3, c0, (len as number) * 1.15, 0x9fb0b6, span * 0.12, span * 0.07))
+  })
+  // gravity (canonical down = -Z)
+  group.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), c0, span * 1.8, 0xD9A84C, span * 0.16, span * 0.09))
+  // CoM marker
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(span * 0.06, 16, 16), new THREE.MeshBasicMaterial({ color: 0xE7EAEC }))
+  dot.position.copy(c0); group.add(dot)
+}
+
 /** Dark device stage: renders the real textured model (materials/textures intact),
  *  with a textured ↔ masks toggle that colours each material group. Plus the verdict
  *  viz (CoM, plumb, support footprint). Canonical is Z-up; world tilted so Z reads up. */
-export function Viewport({ name, file, extras, pap, pos, verdict, status }: {
+export function Viewport({ name, file, extras, pap, pos, verdict, status, onDropFiles }: {
   name: string; file?: File | null; extras?: File[]
   pap: PAP | null; pos: number[]; verdict: Verdict | null
   status?: 'queued' | 'converting' | 'baking' | 'ok' | 'error' | 'declared'
+  onDropFiles?: (files: File[]) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const refs = useRef<Refs | null>(null)
   const posRef = useRef(pos); posRef.current = pos
-  const [view, setView] = useState<'textured' | 'masks'>('textured')
+  const [view, setView] = useState<'textured' | 'masks' | 'inertia'>('textured')
   const [hasContent, setHasContent] = useState(false)
+  const [dropping, setDropping] = useState(false)
 
   const emptyMsg = hasContent ? null
     : status === 'baking' ? 'decomposing…'
@@ -183,6 +248,7 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status }: {
     grid.rotation.x = Math.PI / 2; world.add(grid)
     const meshHolder = new THREE.Group(); world.add(meshHolder)
     const content = new THREE.Group(); meshHolder.add(content)
+    const inertiaGroup = new THREE.Group(); inertiaGroup.visible = false; meshHolder.add(inertiaGroup)
 
     const footprint = new THREE.LineLoop(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: IDLE }))
     world.add(footprint)
@@ -200,14 +266,40 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status }: {
     controls.target.set(0, 0.3, 0)
     controls.addEventListener('start', () => { controls.autoRotate = false })
 
-    const tick = () => { controls.update(); renderer.render(scene, cam); r.raf = requestAnimationFrame(tick) }
+    // corner orientation gizmo (canonical Z-up · X red / Y green / Z blue)
+    const giz = new THREE.Scene()
+    const gcam = new THREE.OrthographicCamera(-1.7, 1.7, 1.7, -1.7, 0.1, 10)
+    const triad = new THREE.Group()
+    const axis = (d: THREE.Vector3, c: number) => triad.add(new THREE.ArrowHelper(d, new THREE.Vector3(), 1, c, 0.32, 0.2))
+    axis(new THREE.Vector3(1, 0, 0), 0xe0694f)
+    axis(new THREE.Vector3(0, 1, 0), 0x6fbf73)
+    axis(new THREE.Vector3(0, 0, 1), 0x5c8bd6)
+    triad.quaternion.copy(world.quaternion)
+    giz.add(triad)
+    const _sz = new THREE.Vector2(), _dir = new THREE.Vector3()
+
+    const tick = () => {
+      controls.update()
+      renderer.render(scene, cam)
+      // overlay the axis gizmo in the bottom-left corner
+      _dir.copy(cam.position).sub(controls.target).normalize().multiplyScalar(4)
+      gcam.position.copy(_dir); gcam.up.copy(cam.up); gcam.lookAt(0, 0, 0)
+      renderer.getSize(_sz)
+      renderer.autoClear = false
+      renderer.clearDepth()
+      renderer.setViewport(12, 12, 78, 78)
+      renderer.render(giz, gcam)
+      renderer.setViewport(0, 0, _sz.x, _sz.y)
+      renderer.autoClear = true
+      r.raf = requestAnimationFrame(tick)
+    }
     const ro = new ResizeObserver(() => {
       const nw = host.clientWidth, nh = host.clientHeight
       if (nw && nh) { cam.aspect = nw / nh; cam.updateProjectionMatrix(); renderer.setSize(nw, nh) }
     })
     ro.observe(host)
 
-    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, groups: [], urls: [], footprint, comDot, plumb, landing, raf: 0 }
+    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, inertiaGroup, groups: [], urls: [], footprint, comDot, plumb, landing, raf: 0 }
     refs.current = r
     tick()
     return () => {
@@ -226,19 +318,21 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status }: {
     r.meshHolder.position.set(p[0] ?? 0, p[1] ?? 0, p[2] ?? 0)
     clearContent(r)
     setHasContent(false)
+    if (pap) buildInertia(r.inertiaGroup, pap)
+    r.inertiaGroup.visible = view === 'inertia'
 
     if (file) {
       loadModel(file, extras ?? [], r.urls).then((model) => {
         if (cancelled || refs.current !== r) return
         r.content.add(model)
         r.groups = buildGroups(model)
-        applyView(r.groups, view)
+        applyView(r.groups, view === 'masks' ? 'masks' : 'textured')
         frame(r)
         setHasContent(true)
       }).catch((e) => { if (!cancelled) console.error('model load failed', e) })
     } else if (pap?.parts?.some((pt) => pt.verts?.length)) {
       r.groups = buildPartGroup(r.content, pap.parts)
-      applyView(r.groups, view)
+      applyView(r.groups, view === 'masks' ? 'masks' : 'textured')
       frame(r)
       setHasContent(true)
     }
@@ -246,10 +340,12 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file, extras, pap?.asset_id])
 
-  // ---- recolour on textured/masks toggle ----
+  // ---- recolour + inertia overlay on view toggle ----
   useEffect(() => {
     const r = refs.current
-    if (r) applyView(r.groups, view)
+    if (!r) return
+    applyView(r.groups, view === 'masks' ? 'masks' : 'textured')
+    r.inertiaGroup.visible = view === 'inertia'
   }, [view, hasContent])
 
   // ---- placement + verdict viz ----
@@ -278,19 +374,29 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status }: {
   return (
     <section className="pane viewport">
       <header>
-        <div className="t"><Icon name="aperture" /><span>Viewport — {name || '—'}</span></div>
+        <div className="t"><Icon name="aperture" /><span>Viewport{name ? ` · ${name}` : ''}</span></div>
         {hasContent && (
           <div className="vptoggle">
             <button className={view === 'textured' ? 'on' : ''} onClick={() => setView('textured')}>textured</button>
             <button className={view === 'masks' ? 'on' : ''} onClick={() => setView('masks')}>masks</button>
+            <button className={view === 'inertia' ? 'on' : ''} onClick={() => setView('inertia')}>inertia</button>
           </div>
         )}
       </header>
-      <div className="stage">
+      <div
+        className={`stage${dropping ? ' dropping' : ''}`}
+        onDragOver={onDropFiles ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; if (!dropping) setDropping(true) } : undefined}
+        onDragLeave={onDropFiles ? (e) => { if (e.currentTarget === e.target) setDropping(false) } : undefined}
+        onDrop={onDropFiles ? (e) => {
+          e.preventDefault(); setDropping(false)
+          const files = Array.from(e.dataTransfer.files)
+          if (files.length) onDropFiles(files)
+        } : undefined}
+      >
         <div className="crop tl" /><div className="crop tr" /><div className="crop bl" /><div className="crop br" />
         <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
         {emptyMsg && <div className="emptyvp">{emptyMsg}</div>}
-        <div className="axis">Z↑ X→<br />m · kg</div>
+        {dropping && <div className="dropover"><Icon name="import" /><span>Drop to bake</span></div>}
       </div>
     </section>
   )

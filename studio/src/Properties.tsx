@@ -1,6 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Icon } from './Icons'
+import { DragField } from './DragField'
 import type { PAP, WdfAsset } from './api'
+
+// usual axis colour codes (X red · Y green · Z blue), palette-harmonised
+const AXIS = ['#E0694F', '#6FBF73', '#5C8BD6']
 
 const SWATCH: Record<string, string> = {
   bronze: '#7b5a2a', stone: '#6b6a63', glass: '#5b6b6b', wood: '#6e5a36', default: '#5a5750',
@@ -18,7 +22,10 @@ export function Properties({ pap, footer, onConfirm, busy, declared }: {
 }) {
   // per-part material overrides (idx -> material), reset when the asset changes
   const [over, setOver] = useState<Record<number, string>>({})
-  useEffect(() => { setOver({}) }, [pap?.asset_id])
+  // manual physics overrides (null = use the baked value)
+  const [massOv, setMassOv] = useState<number | null>(null)
+  const [volOv, setVolOv] = useState<number | null>(null)
+  useEffect(() => { setOver({}); setMassOv(null); setVolOv(null) }, [pap?.asset_id])
 
   if (!pap && declared) {
     const masks = Object.entries(declared.material)
@@ -104,21 +111,21 @@ export function Properties({ pap, footer, onConfirm, busy, declared }: {
           <div className="label" style={{ marginBottom: 4 }}>Physics</div>
           <div className="prop">
             <span className="k"><Icon name="mass" />mass</span>
-            <span className="field">
-              <span className="fill" style={{ width: `${Math.max(4, Math.min(100, pap.physical.mass_kg))}%` }} />
-              <span className="fv">{pap.physical.mass_kg.toFixed(1)}</span><span className="fu">kg</span>
-            </span>
+            <DragField value={massOv ?? pap.physical.mass_kg} onChange={setMassOv}
+              min={0} max={Math.max(200, pap.physical.mass_kg * 2)} step={0.5} decimals={1} unit="kg" />
           </div>
           <div className="prop">
             <span className="k"><Icon name="com" />centre of mass</span>
-            <span className="vec">{pap.physical.com.map((c, i) => <span className="cell" key={i}>{f3(c)}</span>)}</span>
+            <span className="vec">
+              {pap.physical.com.map((c, i) => (
+                <span className="cell" key={i}><span className="ax" style={{ color: AXIS[i] }}>{'XYZ'[i]}</span>{f3(c)}</span>
+              ))}
+            </span>
           </div>
           <div className="prop">
             <span className="k">volume</span>
-            <span className="field">
-              <span className="fill" style={{ width: `${Math.max(4, Math.min(100, pap.geometry.volume_m3 * 1000 * 2))}%` }} />
-              <span className="fv">{(pap.geometry.volume_m3 * 1000).toFixed(1)}</span><span className="fu">L</span>
-            </span>
+            <DragField value={volOv ?? pap.geometry.volume_m3 * 1000} onChange={setVolOv}
+              min={0} max={Math.max(100, pap.geometry.volume_m3 * 1000 * 2)} step={0.5} decimals={1} unit="L" />
           </div>
         </div>
         <div className="psec" style={{ borderBottom: 'none' }}>
