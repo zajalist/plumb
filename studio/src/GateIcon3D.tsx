@@ -22,11 +22,10 @@ function buildShape(shape: GateShape, color: string): THREE.Object3D {
     const b = m(new THREE.BoxGeometry(0.85, 0.85, 0.85)); b.position.set(0.28, -0.1, -0.1); b.rotation.set(0.1, -0.4, 0.1)
     g.add(a, b)
   } else if (shape === 'stability') {
-    const base = m(new THREE.CylinderGeometry(0.42, 0.5, 0.18, 32)); base.position.y = -0.62
-    const line = m(new THREE.CylinderGeometry(0.025, 0.025, 0.95, 8)); line.position.y = 0.05
-    const bob = m(new THREE.ConeGeometry(0.2, 0.42, 24)); bob.rotation.x = Math.PI; bob.position.y = -0.42
-    const top = m(new THREE.SphereGeometry(0.08, 16, 16)); top.position.y = 0.54
-    g.add(base, line, bob, top)
+    // a clean plumb-bob teardrop: round body tapering to a point
+    const body = m(new THREE.SphereGeometry(0.46, 32, 22)); body.position.y = 0.22
+    const tip = m(new THREE.ConeGeometry(0.46, 0.66, 32)); tip.rotation.x = Math.PI; tip.position.y = -0.13
+    g.add(body, tip)
   } else if (shape === 'constraints') {
     const r1 = m(new THREE.TorusGeometry(0.45, 0.15, 20, 44)); r1.position.x = -0.26
     const r2 = m(new THREE.TorusGeometry(0.45, 0.15, 20, 44)); r2.position.x = 0.26; r2.rotation.y = Math.PI / 2
