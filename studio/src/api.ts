@@ -21,7 +21,27 @@ export type PAP = {
   rest_states: string[]
   parts?: Part[]
 }
-export type Health = { ok: boolean; cortex: boolean; ue?: { available: boolean; cmd: boolean; project: boolean } }
+export type Health = {
+  ok: boolean; cortex: boolean
+  ue?: { available: boolean; cmd: boolean; project: boolean }
+  gemini?: { available: boolean; sdk: boolean; key: boolean }
+}
+
+// AI semantic bake (Gemini): what the asset IS — class, up/front, region materials, affordances.
+export type AiSemantics = {
+  class?: string; up?: number[]; front?: number[]
+  materials?: { region: string; material: string }[]
+  affordances?: string[]; confidence?: number; raw?: string
+}
+export async function semanticBake(assetId: string, images: Blob[], hint = ''): Promise<AiSemantics> {
+  const fd = new FormData()
+  fd.append('asset_id', assetId)
+  fd.append('hint', hint)
+  images.forEach((b, i) => fd.append('images', b, `render_${i}.png`))
+  const r = await fetch(`${BASE}/semantics`, { method: 'POST', body: fd })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? 'semantics failed')
+  return r.json()
+}
 
 export async function health(): Promise<Health> {
   const r = await fetch(`${BASE}/health`)

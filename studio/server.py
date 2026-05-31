@@ -77,10 +77,44 @@ def _cortex_available() -> bool:
 
 @app.get("/health")
 def health() -> dict:
-    """Liveness + whether the real cortex is importable and Unreal convert is wired."""
+    """Liveness + whether cortex, Unreal convert, and the Gemini semantic bake are wired."""
+    from studio.semantics import gemini_status
     from studio.uasset import ue_status
 
-    return {"ok": True, "cortex": _cortex_available(), "ue": ue_status()}
+    return {"ok": True, "cortex": _cortex_available(), "ue": ue_status(), "gemini": gemini_status()}
+
+
+@app.post("/semantics")
+async def semantics(
+    asset_id: str = Form(""),
+    hint: str = Form(""),
+    images: list[UploadFile] = File(...),
+) -> dict:
+    """AI semantic bake: send viewport renders to Gemini → class / up / front /
+    per-region materials / affordances. Folds the inferred class into the stored PAP."""
+    from studio.semantics import gemini_status, semantic_bake
+
+    if not gemini_status()["available"]:
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini not configured — set GEMINI_API_KEY (free key at https://aistudio.google.com).",
+        )
+    imgs = [await im.read() for im in images][:4]
+    if not imgs:
+        raise HTTPException(status_code=422, detail="no render images provided")
+    try:
+        sem = semantic_bake(imgs, hint)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gemini error: {e}") from e
+
+    # fold the inferred class into the stored PAP so the rest of the app sees it.
+    cls = sem.get("class")
+    if cls and asset_id in _ASSETS:
+        try:
+            _ASSETS[asset_id].semantics.cls = str(cls)
+        except Exception:
+            pass
+    return sem
 
 
 def _maybe_decimate(path: str, target_faces: int) -> str:
