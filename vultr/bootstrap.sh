@@ -21,8 +21,10 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 
-# 3. GPU torch first (CUDA 12.1 wheel; change cu121 to match the instance's driver if needed)
-pip install torch --index-url https://download.pytorch.org/whl/cu121
+# 3. GPU torch + torchvision TOGETHER (CUDA 12.1 wheel; change cu121 to match the driver).
+# Install them as a pair — torch alone lets timm pull a mismatched torchvision, which breaks
+# transformers with "operator torchvision::nms does not exist".
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 # 4. The rest
 pip install -r requirements.txt

@@ -25,8 +25,16 @@ import io
 import os
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 app = FastAPI(title="plumb-vultr-masks")
+
+
+@app.exception_handler(Exception)
+async def _surface_errors(request: Request, exc: Exception) -> JSONResponse:
+    """Return the real error (type + message) so the studio rail can show *why* a mask failed,
+    instead of a bare 500. (HTTPException — e.g. the 401 auth — is handled by FastAPI separately.)"""
+    return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"})
 
 _DEVICE = os.environ.get("VULTR_DEVICE", "cuda")
 # task → loaded handle (pipeline or (model, processor)); populated lazily by the infer fns.

@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlencode
@@ -99,8 +100,20 @@ def _vultr_request(task: str, image_bytes: bytes, params: dict | None = None):
     if params:
         url = f"{url}?{urlencode(params)}"
     req = urllib.request.Request(url, data=image_bytes, headers=_auth_headers("image/png"))
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        # The box returns {"detail": "<ErrType>: <msg>"} on failure — surface it verbatim so the
+        # rail shows the real reason (e.g. a model-load error) rather than a generic 500.
+        detail = ""
+        try:
+            detail = json.loads(e.read().decode("utf-8")).get("detail", "")
+        except Exception:
+            pass
+        raise RuntimeError(f"{task}: {detail or f'HTTP {e.code} {e.reason}'}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"{task}: box unreachable ({e.reason})") from e
 
 
 # --- compute fns -----------------------------------------------------------------------------

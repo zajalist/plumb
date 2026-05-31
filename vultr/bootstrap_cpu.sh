@@ -24,8 +24,10 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 
-# CPU torch wheel (no CUDA — much smaller, and the box has no GPU).
-pip install torch --index-url https://download.pytorch.org/whl/cpu
+# CPU torch + torchvision TOGETHER from the same index — installing torch alone lets timm
+# pull a mismatched torchvision, which breaks `transformers` with
+# "operator torchvision::nms does not exist".
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
 pip install -r requirements.txt
 

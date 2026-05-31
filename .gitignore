@@ -30,6 +30,12 @@ plumb-refined.png
 # Vultr-hosted mask box — public URL + bearer token fallbacks (vultr provider reads these)
 .vultr_url
 .vultr_token
+# Node deps + machine-specific MCP config (absolute local paths) — never commit
+node_modules/
+.mcp.json
+# Generated artifacts — HaybaMCP search indexes + placement exports
+Saved/
+forest_placement.wdf
 
 # studio test artifacts / screenshots
 studio/test_figure.obj

@@ -71,7 +71,7 @@ def _band_scalar(asset, images, key: str, ramp: str) -> dict:
     those band scores onto each convex part by its height band (see ``_bands``). Shared by
     every Gemini scalar mask — fragility, graspability, wear, load-bearing, value, attach-load.
     """
-    res = _semantic_masks(images, "")
+    res = _semantic_masks(images, str((asset.mask_params or {}).get("hint", "")))
     band_score = {b["band"]: float(b.get("score", 0.0)) for b in res.get(key, [])
                   if isinstance(b, dict) and "band" in b}
     bands = _bands(asset)
@@ -89,7 +89,7 @@ def _scalar(key: str, ramp: str):
 
 
 def _affordances(asset, images) -> dict:
-    res = _semantic_masks(images, "")
+    res = _semantic_masks(images, str((asset.mask_params or {}).get("hint", "")))
     points = []
     for a in res.get("affordances", []):
         if not isinstance(a, dict):

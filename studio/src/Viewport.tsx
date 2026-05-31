@@ -13,6 +13,8 @@ import type { CapPlane, CapResult, PAP, Part, Verdict } from './api'
 
 const SAGE = 0x34c0ad, FAIL = 0xe0694f, IDLE = 0x5e676e, AMBER = 0xd9a84c
 const DEG = Math.PI / 180
+// Cap a free-text prompt/hint to N words (keeps Gemini/CLIPSeg prompts cheap).
+const clampWords = (s: string, n: number): string => s.split(/\s+/).filter(Boolean).slice(0, n).join(' ')
 // the world group is canonical Z-up but three renders Y-up (world.rotation.x = -90°),
 // so convert between a three-space point and the canonical coords the UI shows.
 const toCanon = (v: THREE.Vector3): number[] => [v.x, -v.z, v.y]
@@ -978,17 +980,25 @@ export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale 
     try {
       let images: Blob[] = []
       if (prov.needs_images) { const b = await captureViewport(); if (b) images = [b] }
-      // Vultr text-prompted mask: ask what to segment ("handle", "fragile glass", …).
+      // Per-provider prompt inputs. Cancelling aborts the compute.
       let params: Record<string, string> = {}
+      const cancel = () => setComputing((s) => { const n = new Set(s); n.delete(key); return n })
       if (key === 'text_mask') {
+        // Vultr text-prompted mask: ask what to segment ("handle", "fragile glass", …).
         const prompt = window.prompt('Segment what? (e.g. "handle", "fragile glass")')?.trim()
-        if (!prompt) { setComputing((s) => { const n = new Set(s); n.delete(key); return n }); return }
-        params = { prompt }
+        if (!prompt) { cancel(); return }
+        params = { prompt: clampWords(prompt, 15) }
+      } else if (prov.source === 'gemini') {
+        // Optional hint folded into the Gemini prompt. Empty → run with no hint (OK to skip).
+        const hint = window.prompt(`Optional hint for Gemini (≤15 words) — "${prov.name}". Leave blank to skip.`)?.trim()
+        if (hint) params = { hint: clampWords(hint, 15) }
       }
       const m = await computeMask(assetId, key, images, params)
       setMasks((prev) => [...prev.filter((x) => x.id !== m.id), m])
-    } catch {
-      setMaskErrors((e) => ({ ...e, [key]: 'failed' }))
+    } catch (err) {
+      // Surface the real reason (box/Gemini error) instead of a bare "failed".
+      const msg = err instanceof Error && err.message ? err.message : 'failed'
+      setMaskErrors((e) => ({ ...e, [key]: msg }))
     } finally {
       setComputing((s) => { const n = new Set(s); n.delete(key); return n })
     }
