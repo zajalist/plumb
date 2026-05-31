@@ -1,6 +1,5 @@
 import { useRef, useState, type DragEvent } from 'react'
 import { Icon } from './Icons'
-import { Brand } from './Brand'
 import type { Asset } from './AssetsPanel'
 
 // Bake-staging settings tweaked before/while baking dropped meshes.
@@ -72,7 +71,7 @@ export function Stage({ assets, settings, setSettings, onAddFiles, onEnter, ueAv
   return (
     <div className="stage-screen">
       <div className="stage-head">
-        <Brand />
+        <span className="wordmark">Plumb</span>
         <span className="stage-sub label">Bake staging</span>
       </div>
 

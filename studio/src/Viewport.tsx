@@ -216,6 +216,7 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
   const [view, setView] = useState<'textured' | 'masks' | 'inertia'>('textured')
   const [hasContent, setHasContent] = useState(false)
   const [dropping, setDropping] = useState(false)
+  const [camView, setCamView] = useState<'top' | 'front' | 'side' | 'persp'>('persp')
 
   const emptyMsg = hasContent ? null
     : status === 'baking' ? 'decomposing…'
@@ -234,7 +235,7 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
     const scene = new THREE.Scene()
     scene.background = new THREE.Color('#0A0C0E')
     const cam = new THREE.PerspectiveCamera(38, w / h, 0.01, 100)
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
     renderer.setSize(w, h)
     renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -417,12 +418,18 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
         } : undefined}
       >
         <div className="cambar">
-          <button title="Recenter / frame" onClick={() => refs.current?.setCam('recenter')}>⌖</button>
+          <button className="cb-recenter" data-tip="Recenter" onClick={() => refs.current?.setCam('recenter')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <circle cx="12" cy="12" r="5.5" /><path d="M12 2v3.5M12 18.5V22M2 12h3.5M18.5 12H22" />
+            </svg>
+          </button>
           <span className="cb-sep" />
-          <button onClick={() => refs.current?.setCam('top')}>Top</button>
-          <button onClick={() => refs.current?.setCam('front')}>Front</button>
-          <button onClick={() => refs.current?.setCam('side')}>Side</button>
-          <button onClick={() => refs.current?.setCam('persp')}>Persp</button>
+          {CAM_VIEWS.map(({ v, tip, face }) => (
+            <button key={v} className={camView === v ? 'on' : ''} data-tip={tip}
+              onClick={() => { setCamView(v); refs.current?.setCam(v) }}>
+              <CubeIcon face={face} />
+            </button>
+          ))}
         </div>
         <div className="crop tl" /><div className="crop tr" /><div className="crop bl" /><div className="crop br" />
         <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
@@ -432,3 +439,27 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
     </section>
   )
 }
+
+// An isometric cube whose highlighted face conveys the view (top / front / side);
+// no face = the free perspective view.
+type CubeFace = 'top' | 'left' | 'right' | 'none'
+const FACE_PATH: Record<Exclude<CubeFace, 'none'>, string> = {
+  top: 'M12,3.5 L20.5,8.25 L12,13 L3.5,8.25 Z',
+  left: 'M3.5,8.25 L12,13 L12,20.5 L3.5,15.75 Z',
+  right: 'M20.5,8.25 L12,13 L12,20.5 L20.5,15.75 Z',
+}
+function CubeIcon({ face }: { face: CubeFace }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+      {face !== 'none' && <path d={FACE_PATH[face]} fill="currentColor" fillOpacity="0.6" stroke="none" />}
+      <path d="M12,3.5 L20.5,8.25 L20.5,15.75 L12,20.5 L3.5,15.75 L3.5,8.25 Z" />
+      <path d="M3.5,8.25 L12,13 L20.5,8.25 M12,13 L12,20.5" />
+    </svg>
+  )
+}
+const CAM_VIEWS: { v: 'top' | 'front' | 'side' | 'persp'; tip: string; face: CubeFace }[] = [
+  { v: 'top', tip: 'Top', face: 'top' },
+  { v: 'front', tip: 'Front', face: 'left' },
+  { v: 'side', tip: 'Side', face: 'right' },
+  { v: 'persp', tip: 'Perspective', face: 'none' },
+]
