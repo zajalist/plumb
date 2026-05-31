@@ -130,5 +130,9 @@ def describe_parts(
             "centroid": [float(x) for x in p.center_mass],
             "extent": ext,
             "color": MASK_PALETTE[i % len(MASK_PALETTE)],
+            # convex-part geometry so the viewport can render the masks (canonical
+            # space, Z-up). Parts are low-poly hulls, so this stays compact.
+            "verts": [[round(float(x), 5) for x in v] for v in p.vertices],
+            "tris": [[int(j) for j in f] for f in p.faces],
         })
     return detail

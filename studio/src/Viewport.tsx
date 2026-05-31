@@ -1,37 +1,61 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
 import { Icon } from './Icons'
-import type { PAP, Verdict } from './api'
+import type { PAP, Part, Verdict } from './api'
 
 const SAGE = 0x8e9a60, FAIL = 0xc16a4a, IDLE = 0x7c7868, AMBER = 0xc2a24e
+const SOLID = '#586040'
 
 type Refs = {
   host: HTMLDivElement
   renderer: THREE.WebGLRenderer
   scene: THREE.Scene
   cam: THREE.PerspectiveCamera
-  meshHolder: THREE.Group   // the placed mesh (moves with pos)
-  footprint: THREE.LineLoop // the support polygon at origin (anchored)
-  comDot: THREE.Mesh        // centre of mass marker
-  plumb: THREE.Line         // CoM -> ground
-  landing: THREE.Mesh       // where the plumb hits the floor
+  meshHolder: THREE.Group       // placed assembly (moves with pos)
+  parts: THREE.Group            // the per-part mask meshes
+  partMats: THREE.MeshStandardMaterial[]
+  footprint: THREE.LineLoop
+  comDot: THREE.Mesh
+  plumb: THREE.Line
+  landing: THREE.Mesh
   raf: number
 }
 
-/** Dark device stage: renders the placed mesh + the verdict viz (CoM, plumb line,
- *  support footprint). Canonical is Z-up; the world group is tilted so Z reads up. */
-export function Viewport({ file, name, pap, pos, verdict }: {
-  file: File | null; name: string; pap: PAP | null; pos: number[]; verdict: Verdict | null
+function buildParts(group: THREE.Group, partList: Part[]): THREE.MeshStandardMaterial[] {
+  while (group.children.length) {
+    const c = group.children[0] as THREE.Mesh
+    group.remove(c); c.geometry.dispose(); (c.material as THREE.Material).dispose()
+  }
+  const mats: THREE.MeshStandardMaterial[] = []
+  for (const p of partList) {
+    if (!p.verts?.length || !p.tris?.length) continue
+    const geom = new THREE.BufferGeometry()
+    geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(p.verts.flat()), 3))
+    geom.setIndex(p.tris.flat())
+    geom.computeVertexNormals()
+    const mat = new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.82, metalness: 0.05, flatShading: true })
+    mat.userData.mask = p.color
+    group.add(new THREE.Mesh(geom, mat))
+    mats.push(mat)
+  }
+  return mats
+}
+
+/** Dark device stage: renders the baked masks (per-part convex hulls, each in its
+ *  mask colour) + the verdict viz (CoM, plumb line, support footprint). Canonical
+ *  is Z-up; the world group is tilted so Z reads up. */
+export function Viewport({ name, pap, pos, verdict }: {
+  name: string; pap: PAP | null; pos: number[]; verdict: Verdict | null
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const refs = useRef<Refs | null>(null)
+  const [view, setView] = useState<'masks' | 'solid'>('masks')
+  const hasParts = !!pap?.parts?.some((p) => p.verts?.length)
 
-  // ---- setup + load mesh (only when the file changes) ----
+  // ---- one-time scene setup ----
   useEffect(() => {
     const host = hostRef.current
-    if (!host || !file) return
-    let disposed = false
+    if (!host) return
     const w = host.clientWidth || 600, h = host.clientHeight || 360
 
     const scene = new THREE.Scene()
@@ -45,36 +69,20 @@ export function Viewport({ file, name, pap, pos, verdict }: {
     scene.add(new THREE.HemisphereLight(0xcfcab8, 0x141310, 1.0))
     const key = new THREE.DirectionalLight(0xffffff, 0.55); key.position.set(2, 5, 3); scene.add(key)
 
-    // canonical world (Z-up): tilt so canonical Z points up in the view.
     const world = new THREE.Group(); world.rotation.x = -Math.PI / 2; scene.add(world)
-
-    // floor grid in the canonical XY plane (z=0)
     const grid = new THREE.GridHelper(1.6, 16, 0x23231b, 0x1c1c15)
     grid.rotation.x = Math.PI / 2; world.add(grid)
 
     const meshHolder = new THREE.Group(); world.add(meshHolder)
-    const material = new THREE.MeshStandardMaterial({ color: '#586040', roughness: 0.85, metalness: 0.08, flatShading: true })
-    file.text().then((txt) => {
-      if (disposed) return
-      try {
-        const obj = new OBJLoader().parse(txt)
-        obj.traverse((o: THREE.Object3D) => { const m = o as THREE.Mesh; if (m.isMesh) m.material = material })
-        meshHolder.add(obj)
-      } catch { /* leave empty */ }
-    })
+    const parts = new THREE.Group(); meshHolder.add(parts)
 
-    // support footprint (anchored at origin), CoM dot, plumb line, landing ring
-    const footprint = new THREE.LineLoop(
-      new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: IDLE }))
+    const footprint = new THREE.LineLoop(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: IDLE }))
     world.add(footprint)
-    const comDot = new THREE.Mesh(
-      new THREE.SphereGeometry(0.02, 16, 16), new THREE.MeshBasicMaterial({ color: AMBER }))
+    const comDot = new THREE.Mesh(new THREE.SphereGeometry(0.02, 16, 16), new THREE.MeshBasicMaterial({ color: AMBER }))
     comDot.visible = false; world.add(comDot)
-    const plumb = new THREE.Line(
-      new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: IDLE, dashSize: 0.03, gapSize: 0.02 }))
+    const plumb = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: IDLE, dashSize: 0.03, gapSize: 0.02 }))
     plumb.visible = false; world.add(plumb)
-    const landing = new THREE.Mesh(
-      new THREE.RingGeometry(0.012, 0.022, 20), new THREE.MeshBasicMaterial({ color: IDLE, side: THREE.DoubleSide }))
+    const landing = new THREE.Mesh(new THREE.RingGeometry(0.012, 0.022, 20), new THREE.MeshBasicMaterial({ color: IDLE, side: THREE.DoubleSide }))
     landing.rotation.x = -Math.PI / 2; landing.visible = false; world.add(landing)
 
     let angle = 0.6
@@ -91,19 +99,32 @@ export function Viewport({ file, name, pap, pos, verdict }: {
     })
     ro.observe(host)
 
-    const r: Refs = { host, renderer, scene, cam, meshHolder, footprint, comDot, plumb, landing, raf: 0 }
+    const r: Refs = { host, renderer, scene, cam, meshHolder, parts, partMats: [], footprint, comDot, plumb, landing, raf: 0 }
     refs.current = r
     tick()
 
     return () => {
-      disposed = true
-      cancelAnimationFrame(r.raf); ro.disconnect(); renderer.dispose(); material.dispose()
+      cancelAnimationFrame(r.raf); ro.disconnect(); renderer.dispose()
       if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement)
       refs.current = null
     }
-  }, [file])
+  }, [])
 
-  // ---- update placement + verdict viz (when pos / verdict / pap change) ----
+  // ---- (re)build mask meshes when the baked parts change ----
+  useEffect(() => {
+    const r = refs.current
+    if (!r) return
+    r.partMats = buildParts(r.parts, pap?.parts ?? [])
+  }, [pap?.asset_id, pap?.parts])
+
+  // ---- recolour on masks/solid toggle ----
+  useEffect(() => {
+    const r = refs.current
+    if (!r) return
+    for (const m of r.partMats) m.color.set(view === 'masks' ? (m.userData.mask as string) : SOLID)
+  }, [view, pap?.asset_id, pap?.parts])
+
+  // ---- placement + verdict viz ----
   useEffect(() => {
     const r = refs.current
     if (!r || !pap) return
@@ -112,8 +133,6 @@ export function Viewport({ file, name, pap, pos, verdict }: {
     const wx = pos[0] + com[0], wy = pos[1] + com[1], wz = pos[2] + com[2]
 
     r.meshHolder.position.set(pos[0], pos[1], pos[2])
-
-    // footprint rectangle at origin (z=0) — the anchored support the CoM slides over
     r.footprint.geometry.setFromPoints([
       new THREE.Vector3(-hx, -hy, 0), new THREE.Vector3(hx, -hy, 0),
       new THREE.Vector3(hx, hy, 0), new THREE.Vector3(-hx, hy, 0),
@@ -134,12 +153,17 @@ export function Viewport({ file, name, pap, pos, verdict }: {
     <section className="pane viewport">
       <header>
         <div className="t"><Icon name="aperture" /><span>Viewport — {name || '—'}</span></div>
-        <span className="mono" style={{ fontSize: 10, color: 'var(--ink4)' }}>orbit · frame</span>
+        {hasParts && (
+          <div className="vptoggle">
+            <button className={view === 'masks' ? 'on' : ''} onClick={() => setView('masks')}>masks</button>
+            <button className={view === 'solid' ? 'on' : ''} onClick={() => setView('solid')}>solid</button>
+          </div>
+        )}
       </header>
       <div className="stage">
         <div className="crop tl" /><div className="crop tr" /><div className="crop bl" /><div className="crop br" />
         <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
-        {!file && <div className="emptyvp">no asset selected</div>}
+        {!hasParts && <div className="emptyvp">{pap ? 'declared asset — no geometry' : 'no asset selected'}</div>}
         <div className="axis">Z↑ X→<br />m · kg</div>
       </div>
     </section>
