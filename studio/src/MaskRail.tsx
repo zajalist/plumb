@@ -29,7 +29,7 @@ function pill(source: string): string {
 
 // Why a provider is greyed out: HF/Gemini need a key; the Vultr box just has to be up.
 function unavailableHint(source: string): string {
-  return source === 'vultr' ? 'Vultr box offline — start it & set .vultr_url' : `set ${source.toUpperCase()} key`
+  return source === 'vultr' ? 'Vultr box offline. Start it & set .vultr_url' : `set ${source.toUpperCase()} key`
 }
 function unavailablePill(source: string): string {
   return source === 'vultr' ? 'box offline' : `no ${source} key`

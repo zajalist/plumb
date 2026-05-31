@@ -583,11 +583,12 @@ export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale 
     const human = buildHuman(); world.add(human)
     const ruler = new THREE.Group(); scene.add(ruler)   // measure markers live in three world coords
     // door swept-volume wedge (WP-6): translucent amber keep-clear solid at origin
-    const swept = new THREE.Mesh(
+    // (named sweptMesh so it never shadows the `swept` prop inside this setup scope)
+    const sweptMesh = new THREE.Mesh(
       new THREE.BufferGeometry(),
       new THREE.MeshBasicMaterial({ color: AMBER, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }),
     )
-    swept.visible = false; world.add(swept)
+    sweptMesh.visible = false; world.add(sweptMesh)
 
     cam.position.set(1.1, 0.85, 1.1)
     const controls = new OrbitControls(cam, renderer.domElement)
@@ -654,7 +655,7 @@ export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale 
       controls.update()
     }
 
-    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, model: null, capGizmo: null, transform: null, capContour: null, capCache: null, capDirty: false, capHalf: 0, forceGroup, forceBuilt: false, gradMat, groups: [], maskContent, maskGroups: [], overlayGroup, radius: 0.3, urls: [], footprint, comDot, plumb, landing, human, ruler, showGiz: true, swept, setCam, raf: 0 }
+    const r: Refs = { host, renderer, scene, cam, controls, grid, meshHolder, content, model: null, capGizmo: null, transform: null, capContour: null, capCache: null, capDirty: false, capHalf: 0, forceGroup, forceBuilt: false, gradMat, groups: [], maskContent, maskGroups: [], overlayGroup, radius: 0.3, urls: [], footprint, comDot, plumb, landing, human, ruler, showGiz: true, swept: sweptMesh, setCam, raf: 0 }
     refs.current = r
     tick()
     return () => {
@@ -665,6 +666,9 @@ export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale 
   }, [])
 
   // ---- load content (real model if we have the file, else convex-part masks) ----
+  // stable signature of the sidecars so a re-rendered (but unchanged) extras array
+  // doesn't retrigger a full reload + reframe flicker.
+  const extrasKey = (extras ?? []).map((f) => f.name).join('|')
   useEffect(() => {
     const r = refs.current
     if (!r) return
@@ -702,12 +706,13 @@ export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale 
     } else if (pap?.parts?.some((pt) => pt.verts?.length)) {
       buildMaskGeom()
       frame(r)
+      r.human.position.set(-(r.radius + 0.45), 0, 0)   // park the human ref beside the freshly-sized model
       applyMasks(r, 'textured', new Set(), [])
       setHasContent(true)
     }
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file, extras, pap?.asset_id])
+  }, [file, extrasKey, pap?.asset_id])
 
   // ---- fetch the provider catalog once ----
   useEffect(() => { maskProviders().then(setCatalog).catch(() => {}) }, [])
@@ -715,6 +720,8 @@ export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale 
   // ---- on asset change: reset mask state + load any stored masks ----
   useEffect(() => {
     setSurface('textured'); setOverlays(new Set()); setMaskErrors({}); setMasks([])
+    setRp([]); setRSel(-1)   // clear measure points so they don't leak across assets
+    setCap({ sizeFrac: 0.5, mode: 'translate' })   // reset the cap tool to defaults
     if (!assetId) return
     let cancelled = false
     listMasks(assetId).then((ms) => { if (!cancelled) setMasks(ms) }).catch(() => {})
@@ -1129,7 +1136,7 @@ export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale 
               <span className="cap-title"><Icon name="seal" />Cap opening</span>
               <button className="cap-x" title="Done" onClick={() => onExitCap?.()}>✕</button>
             </div>
-            <p className="cap-hint">Drag the handles to move the plane over a hole — the bright outline shows where it cuts. Then place it down.</p>
+            <p className="cap-hint">Drag the handles to move the plane over a hole. The bright outline shows where it cuts, then place it down.</p>
             <div className="cap-field">
               <label>Handles</label>
               <div className="cap-axes">
@@ -1167,7 +1174,7 @@ export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale 
 // Outcome card shown after auto-fill or a manual cap: did it seal / refine / find a shell
 // / miss, plus mass & volume before → after so the effect is unambiguous.
 const CR_META: Record<CapResult['status'], { cls: string; icon: string; title: string }> = {
-  sealed: { cls: 'ok', icon: '✓', title: 'Sealed — watertight' },
+  sealed: { cls: 'ok', icon: '✓', title: 'Sealed · watertight' },
   refined: { cls: 'ok', icon: '✓', title: 'Holes filled' },
   shell: { cls: 'shell', icon: '◐', title: 'Shell mesh' },
   none: { cls: 'warn', icon: '!', title: 'Nothing to seal' },
@@ -1177,14 +1184,14 @@ function CapResultCard({ result, onAgain, onDone }: { result: CapResult; onAgain
   const { status, mode, before, after, watertight, message } = result
   const m = CR_META[status]
   const how = mode === 'auto' ? 'Auto-fill' : 'The cap'
-  const sub = status === 'sealed' ? 'The solid is closed — mass & volume are now exact.'
+  const sub = status === 'sealed' ? 'The solid is closed. Mass & volume are now exact.'
     : status === 'refined' ? `${how} closed some openings. Mass & volume updated; other open areas remain.`
-    : status === 'shell' ? `This is a shell mesh (thin one-sided surfaces). ${mode === 'auto' ? 'Auto-fill can’t make it solid' : 'A patch was added, but the region stays a shell'} — mass & volume are area-based, which is the correct model here.`
+    : status === 'shell' ? `This is a shell mesh (thin one-sided surfaces). ${mode === 'auto' ? 'Auto-fill can’t make it solid' : 'A patch was added, but the region stays a shell'}. Mass & volume are area-based, which is the correct model here.`
     : status === 'none' ? (mode === 'auto' ? 'No closeable openings were found.' : 'The plane didn’t cover a hole. Move or resize it over an opening, then try again.')
     : (message || 'The re-bake failed.')
   const dMass = after.mass - before.mass
   const dVol = (after.vol - before.vol) * 1000
-  const wtLabel = status === 'shell' ? 'n/a — shell' : watertight ? 'yes — sealed' : 'no — still open'
+  const wtLabel = status === 'shell' ? 'n/a · shell' : watertight ? 'yes · sealed' : 'no · still open'
   const row = (label: string, b: number, a: number, unit: string, d: number) => (
     <div className="cr-row">
       <span className="cr-k">{label}</span>

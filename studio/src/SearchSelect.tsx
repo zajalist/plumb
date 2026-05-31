@@ -25,7 +25,16 @@ export function SearchSelect({ value, options, onChange, placeholder = 'Searchâ€
     const el = triggerRef.current
     if (!el) return
     const r = el.getBoundingClientRect()
-    setRect({ left: r.left, top: r.bottom + 4, width: Math.max(r.width, 220) })
+    const width = Math.max(r.width, 220)
+    const EST = 300 // ~search + list max-height; used to decide flip-up
+    const M = 8
+    // clamp horizontally so the menu never spills off the right/left edge
+    const left = Math.max(M, Math.min(r.left, window.innerWidth - width - M))
+    // flip up if there isn't room below and there is room above
+    const below = window.innerHeight - r.bottom
+    const flip = below < EST && r.top > below
+    const top = flip ? Math.max(M, r.top - 4 - Math.min(EST, r.top - M)) : r.bottom + 4
+    setRect({ left, top, width })
   }
   useLayoutEffect(() => { if (open) place() }, [open])
 
@@ -35,14 +44,19 @@ export function SearchSelect({ value, options, onChange, placeholder = 'Searchâ€
       const t = e.target as Node
       if (!triggerRef.current?.contains(t) && !popRef.current?.contains(t)) setOpen(false)
     }
-    const onScroll = () => setOpen(false)
+    const onResize = () => place()
+    // a scroll INSIDE the option list just moves the list â€” leave the menu open.
+    // a scroll anywhere else (a parent panel, the page) re-anchors it to the trigger.
+    const onScroll = (e: Event) => {
+      if (popRef.current?.contains(e.target as Node)) return
+      place()
+    }
     document.addEventListener('mousedown', onDoc)
-    window.addEventListener('resize', onScroll)
-    // capture scrolls on any ancestor so the menu doesn't drift away from its trigger
+    window.addEventListener('resize', onResize)
     window.addEventListener('scroll', onScroll, true)
     return () => {
       document.removeEventListener('mousedown', onDoc)
-      window.removeEventListener('resize', onScroll)
+      window.removeEventListener('resize', onResize)
       window.removeEventListener('scroll', onScroll, true)
     }
   }, [open])

@@ -14,10 +14,10 @@ export type BakeSettings = {
 
 // hint keyed by engine archetype (presets map to one of these via PROFILE_BASE)
 const PROFILE_HINT: Record<string, string> = {
-  rigid_prop: 'Static prop — single rigid body.',
-  door: 'Hinged — swept hull over the joint range.',
-  tree: 'Foliage — trunk/canopy split.',
-  shelf: 'Container — load surfaces + capacity.',
+  rigid_prop: 'Static prop. One rigid body.',
+  door: 'Hinged. Swept hull over the joint range.',
+  tree: 'Foliage. Trunk and canopy split.',
+  shelf: 'Container. Load surfaces and capacity.',
 }
 const profileHint = (v: string) => PROFILE_HINT[PROFILE_BASE[v] ?? v] ?? 'Custom preset.'
 const ACCEPT = '.obj,.glb,.gltf,.stl,.uasset,.bin,.png,.jpg,.jpeg,.webp,.ktx2'
@@ -83,7 +83,9 @@ export function Stage({ assets, settings, setSettings, onAddFiles, onBake, onUpd
   }
 
   const ready = assets.filter((a) => a.status === 'ok').length
-  const queued = assets.filter((a) => a.status === 'queued' && a.file).length
+  // queued OR previously-errored meshes can (re)bake — both need a file
+  const toBake = assets.filter((a) => (a.status === 'queued' || a.status === 'error') && a.file).length
+  const failed = assets.filter((a) => a.status === 'error').length
   const baking = assets.some((a) => a.status === 'converting' || a.status === 'baking')
   const ext = (n: string) => { const m = /\.([a-z0-9]+)$/i.exec(n); return m ? m[1].toUpperCase() : '3D' }
 
@@ -203,13 +205,13 @@ export function Stage({ assets, settings, setSettings, onAddFiles, onBake, onUpd
       </div>
 
       <div className="stage-foot">
-        {ready > 0 && queued > 0 && !baking && (
+        {ready > 0 && toBake > 0 && !baking && (
           <button className="stage-enter ghost" onClick={onEnter}>Enter editor · {ready} →</button>
         )}
-        <button className="stage-enter" disabled={baking || (queued === 0 && ready === 0)}
-          onClick={queued > 0 ? onBake : onEnter}>
+        <button className="stage-enter" disabled={baking || (toBake === 0 && ready === 0)}
+          onClick={toBake > 0 ? onBake : onEnter}>
           {baking ? 'Baking…'
-            : queued > 0 ? `Bake ${queued} mesh${queued > 1 ? 'es' : ''}`
+            : toBake > 0 ? `${failed > 0 && toBake === failed ? 'Retry' : 'Bake'} ${toBake} mesh${toBake > 1 ? 'es' : ''}`
             : ready > 0 ? `Enter editor · ${ready} asset${ready > 1 ? 's' : ''} →`
             : 'Drop a mesh to begin'}
         </button>

@@ -31,14 +31,16 @@ export function Properties({ pap, footer, onConfirm, onCapOpenings, onAutoFill, 
   busy?: boolean
   declared?: WdfAsset       // an asset declared by an opened .wdf (no bake yet)
 }) {
-  // per-part material overrides (idx -> material), reset when the asset changes
-  const [over, setOver] = useState<Record<number, string>>({})
+  // per-part material overrides (part id -> material). Keyed by the unique part id
+  // (not idx, which can collide), reset on asset change AND after a confirm re-bake.
+  const [over, setOver] = useState<Record<string, string>>({})
   // stable fill-bar maxima captured per asset (so live mass/volume edits don't move the goalposts)
   const baseRef = useRef({ mass: 200, vol: 100 })
+  const confirmedCount = pap?.parts?.filter((p) => p.confirmed).length ?? 0
   useEffect(() => {
     setOver({})
     if (pap) baseRef.current = { mass: Math.max(200, pap.physical.mass_kg * 2), vol: Math.max(100, pap.geometry.volume_m3 * 1000 * 2) }
-  }, [pap?.asset_id])
+  }, [pap?.asset_id, confirmedCount])
 
   if (!pap && declared) {
     const masks = Object.entries(declared.material)
@@ -110,7 +112,7 @@ export function Properties({ pap, footer, onConfirm, onCapOpenings, onAutoFill, 
   const confirm = () => {
     if (!onConfirm) return
     const map: Record<string, string> = {}
-    for (const p of parts) map[String(p.idx)] = over[p.idx] ?? p.material
+    for (const p of parts) map[String(p.idx)] = over[p.id] ?? p.material
     onConfirm(map)
   }
 
@@ -158,15 +160,15 @@ export function Properties({ pap, footer, onConfirm, onCapOpenings, onAutoFill, 
                 <div className="cl-t">{shellMesh ? 'Shell mesh' : 'Open surface'}</div>
                 <div className="cl-d">
                   {shellMesh
-                    ? <>Thin one-sided surfaces (foliage / cloth). Mass &amp; volume are <b>area-based</b> — the correct model for shells, not a defect. Sealing can’t make it solid.</>
-                    : <>{openSolids > 0 ? `${openSolids} solid region${openSolids > 1 ? 's have' : ' has'} an opening. ` : 'Open surfaces. '}Mass &amp; volume are <b>estimated</b> — fill the holes for exact values.</>}
+                    ? <>Thin one-sided surfaces (foliage / cloth). Mass &amp; volume are <b>area-based</b>, the correct model for shells, not a defect. Sealing can’t make it solid.</>
+                    : <>{openSolids > 0 ? `${openSolids} solid region${openSolids > 1 ? 's have' : ' has'} an opening. ` : 'Open surfaces. '}Mass &amp; volume are <b>estimated</b>. Fill the holes for exact values.</>}
                 </div>
               </div>
             </div>
             <div className="cl-actions">
               {onAutoFill && (
                 <button className="cl-auto" disabled={busy || shellMesh} onClick={onAutoFill}
-                  title={shellMesh ? 'No closeable openings — this is a shell mesh' : 'Fill every closeable hole automatically'}>
+                  title={shellMesh ? 'No closeable openings (shell mesh)' : 'Fill every closeable hole automatically'}>
                   {busy ? 'Filling…' : 'Auto-fill holes'}
                 </button>
               )}
@@ -177,7 +179,7 @@ export function Properties({ pap, footer, onConfirm, onCapOpenings, onAutoFill, 
                 </button>
               )}
             </div>
-            {shellMesh && <div className="cl-note">Auto-fill is off — there’s nothing solid to seal. Use manual only to force-close a specific opening.</div>}
+            {shellMesh && <div className="cl-note">Auto-fill is off. There’s nothing solid to seal; use manual only to force-close a specific opening.</div>}
           </div>
         )}
         <div className="psec">
@@ -214,7 +216,8 @@ export function Properties({ pap, footer, onConfirm, onCapOpenings, onAutoFill, 
                 <span className="v muted mono">
                   {(() => {
                     const s = scale ?? 1, o = pap.geometry.obb
-                    const dims = [o?.[0] ?? 0, o?.[1] ?? 0, o?.[2] ?? 0].map((h) => h * 2 * s)
+                    if (!o || o.length < 3) return '—'
+                    const dims = [o[0], o[1], o[2]].map((h) => h * 2 * s)
                     const tall = Math.max(...dims)
                     return `${dims.map((d) => d.toFixed(2)).join(' × ')} m · ${tall.toFixed(2)} m tall`
                   })()}
@@ -244,24 +247,25 @@ export function Properties({ pap, footer, onConfirm, onCapOpenings, onAutoFill, 
           ) : (
             <div className="masks">
               {parts.map((p) => {
-                const mat = over[p.idx] ?? p.material
+                const mat = over[p.id] ?? p.material
                 return (
                   <div className="mask" key={p.id}>
-                    <span className="mask-c" style={{ background: p.color }} title={p.id} />
-                    <div className="mask-main">
-                      <div className="mask-top">
-                        <span className="mask-id mono">{p.id}{p.hollow ? ' · shell' : ''}</span>
-                        {p.confirmed || !onConfirm ? (
-                          <span className="mask-mat"><span className="swatch" style={{ background: matSwatch(mat) }} />{matLabel(mat)}</span>
-                        ) : (
-                          <SearchSelect value={mat} options={MATERIAL_OPTIONS} disabled={busy}
-                            placeholder="Search materials…"
-                            onChange={(v) => setOver((o) => ({ ...o, [p.idx]: v }))} />
-                        )}
-                        <span className="mask-conf mono">{p.confirmed ? 'locked' : `${Math.round(p.conf * 100)}%`}</span>
-                      </div>
-                      <div className="mask-bar"><span style={{ width: `${Math.max(3, Math.round(p.vol_frac * 100))}%`, background: p.color }} /></div>
+                    <div className="mask-top">
+                      <span className="mask-c" style={{ background: p.color }} title={p.id} />
+                      <span className="mask-id" title={p.id}>{p.id}{p.hollow ? ' · shell' : ''}</span>
+                      <span className={`mask-conf mono${p.confirmed ? ' locked' : ''}`}
+                        title={p.confirmed ? 'material confirmed & locked' : 'material-guess confidence'}>
+                        {p.confirmed ? 'locked' : `${Math.round(p.conf * 100)}%`}
+                      </span>
                     </div>
+                    {p.confirmed || !onConfirm ? (
+                      <div className="mask-mat"><span className="swatch" style={{ background: matSwatch(mat) }} />{matLabel(mat)}</div>
+                    ) : (
+                      <SearchSelect value={mat} options={MATERIAL_OPTIONS} disabled={busy}
+                        placeholder="Search materials…"
+                        onChange={(v) => setOver((o) => ({ ...o, [p.id]: v }))} />
+                    )}
+                    <div className="mask-bar" title={`${Math.round(p.vol_frac * 100)}% of total volume`}><span style={{ width: `${Math.max(3, Math.round(p.vol_frac * 100))}%`, background: p.color }} /></div>
                   </div>
                 )
               })}
@@ -274,7 +278,7 @@ export function Properties({ pap, footer, onConfirm, onCapOpenings, onAutoFill, 
             </button>
           )}
         </div>
-        {footer}
+        {footer && <div className="psec" style={{ borderBottom: 'none' }}>{footer}</div>}
       </div>
     </section>
   )
