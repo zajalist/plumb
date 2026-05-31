@@ -99,6 +99,14 @@ def _symmetry_axes(asset, images=None) -> dict:
     return {"axes": axes}
 
 
+# --- force_gradient (scalar): the old "inertia" vertical gradient as a mask ------ #
+
+def _force_gradient(asset, images=None) -> dict:
+    # per-part normalised height — high near the top (where gravity does the most work).
+    vals = {p["id"]: float(np.asarray(p.get("centroid", [0, 0, 0]), float)[2]) for p in asset.parts}
+    return {**_scalar(vals), "ramp": "viridis"}
+
+
 # --- gravity_field (vector): procedural, renderer reuses the force field -------- #
 
 def _gravity_field(asset, images=None) -> dict:
@@ -115,5 +123,7 @@ register(MaskProvider("contact_patches", "Contact patches", "geometry", "physics
                       False, lambda: True, _contact_patches))
 register(MaskProvider("symmetry_axes", "Symmetry axes", "geometry", "artistic", "markers",
                       False, lambda: True, _symmetry_axes))
+register(MaskProvider("force_gradient", "Force gradient", "geometry", "physics", "scalar",
+                      False, lambda: True, _force_gradient))
 register(MaskProvider("gravity_field", "Gravity / force", "geometry", "physics", "vector",
                       False, lambda: True, _gravity_field))

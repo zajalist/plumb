@@ -38,6 +38,7 @@ _DENSITY = [
 ]
 _SHELL_THICKNESS_M = 0.003  # 3 mm — leaf-card / cloth thickness for shell mass
 _SOLID_WALL_M = 0.02        # 2 cm — effective wall for open tubular solids (twigs, trunks)
+_CAP_MAX_FACES = 350_000    # above this a manual cap's cross-section is too slow — skip the group
 
 
 def _material_info(name: str | None) -> tuple[str, float, bool]:
@@ -53,6 +54,33 @@ def material_density(name: str | None) -> tuple[str, float]:
     """``(bucket, density)`` for a material name (back-compat helper)."""
     mat, rho, _ = _material_info(name)
     return mat, rho
+
+
+def _is_shell(name: str, geo: trimesh.Trimesh) -> bool:
+    """Is this group an inherent **shell** — a thin open surface (foliage, cloth, or a
+    single-sided art mesh) whose mass is area-based, not a closeable solid?
+
+    A material shell (leaf-card / cloth) always is. Otherwise a group counts as a shell
+    only if it can't be sealed: it's open and even filling its holes leaves it open (e.g.
+    a one-sided bark surface). A solid that's watertight — or open but *fillable* into a
+    watertight solid (a barrel with one rim) — is NOT a shell; its opening is closeable.
+    This is what lets auto-fill know up front whether it can do anything.
+    """
+    _b, _r, mat_shell = _material_info(name)
+    if mat_shell:
+        return True
+    try:
+        if geo.is_watertight:
+            return False
+        if len(geo.faces) > _CAP_MAX_FACES:
+            return True  # too dense to test cheaply — treat as a surface
+        g = geo.copy()
+        g.merge_vertices()
+        g.update_faces(g.nondegenerate_faces())
+        trimesh.repair.fill_holes(g)
+        return not bool(g.is_watertight)
+    except Exception:
+        return True
 
 
 def _load_groups(mesh_path: str) -> list[tuple[str, trimesh.Trimesh]]:
@@ -80,11 +108,16 @@ def _load_groups(mesh_path: str) -> list[tuple[str, trimesh.Trimesh]]:
             geo = loaded.geometry.get(gname)
             if not isinstance(geo, trimesh.Trimesh) or len(geo.faces) == 0:
                 continue
-            g = geo.copy()
-            try:
-                g.apply_transform(transform)
-            except Exception:
-                pass
+            # Only copy + transform when the node actually moves the geometry — baking an
+            # identity transform into millions of leaf verts is pure overhead.
+            if transform is not None and not np.allclose(transform, np.eye(4)):
+                g = geo.copy()
+                try:
+                    g.apply_transform(transform)
+                except Exception:
+                    pass
+            else:
+                g = geo
             mat = getattr(getattr(g, "visual", None), "material", None)
             name = getattr(mat, "name", None) or gname
             groups.append((str(name), g))
@@ -212,6 +245,13 @@ def bake_material_groups(mesh_path: str, cap: bool = False, cap_plane: dict | No
 
         capped: list[tuple[str, trimesh.Trimesh]] = []
         for name, g in groups:
+            # Skip thin shells (foliage / cloth — a flat card has nothing to cap) and very
+            # dense groups (sectioning millions of faces is what makes a cap hang). Leaves
+            # are both, so this keeps the cap responsive on game trees.
+            _bucket, _rho, is_shell = _material_info(name)
+            if is_shell or len(g.faces) > _CAP_MAX_FACES:
+                capped.append((name, g))
+                continue
             try:
                 g2, _n = cap_with_plane(
                     g,
@@ -225,7 +265,12 @@ def bake_material_groups(mesh_path: str, cap: bool = False, cap_plane: dict | No
                 capped.append((name, g))
         groups = capped
     elif cap:
-        for _, g in groups:
+        # Auto hole-fill, but only on closeable solids — filling a foliage shell's 30 000
+        # leaf-card boundaries is pointless and slow, and a huge group would hang.
+        for name, g in groups:
+            _b, _r, is_sh = _material_info(name)
+            if is_sh or len(g.faces) > _CAP_MAX_FACES:
+                continue
             _close_group(g)
 
     # Normalise off-unit models (cm/mm) to metres so mass/CoM read true.
@@ -268,6 +313,10 @@ def bake_material_groups(mesh_path: str, cap: bool = False, cap_plane: dict | No
         conf=0.4,
     )
 
+    # classify each region: an inherent shell (area-based) vs a closeable solid — drives
+    # the studio's closure UX (whether auto-fill / manual capping can do anything).
+    shells = [_is_shell(name, g) for name, g in groups]
+
     total_v = float(sum(vols)) or 1e-9
     masks = []
     for i, ((name, g), v, (mat, _rho, _shell), m, c) in enumerate(zip(groups, vols, infos, masses, coms)):
@@ -283,6 +332,7 @@ def bake_material_groups(mesh_path: str, cap: bool = False, cap_plane: dict | No
             "mass_kg": m,
             "mass_frac": m / total_mass,
             "hollow": bool(not g.is_watertight),
+            "shell": bool(shells[i]),   # area-based region (foliage/cloth/one-sided surface)
             "centroid": [float(x) for x in c],
             "extent": [float(e) / 2.0 for e in g.bounding_box.extents],
             "color": MASK_PALETTE[i % len(MASK_PALETTE)],

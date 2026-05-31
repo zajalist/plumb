@@ -13,6 +13,7 @@ export type Asset = {
   wdf?: WdfAsset         // present when this asset came from a .wdf vocabulary
   folder?: string        // organisational folder (optional)
   color?: string         // user colour-code (optional)
+  profile?: string       // per-mesh bake profile (chosen in the stage before baking)
 }
 
 const COLORS = ['#34C0AD', '#D9A84C', '#E0694F', '#5C8BD6', '#A088B0', '#6FBF73', '#7C8AA0']

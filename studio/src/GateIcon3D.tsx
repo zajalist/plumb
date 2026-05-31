@@ -12,8 +12,18 @@ import * as THREE from 'three'
 
 export type GateShape = 'collision' | 'stability' | 'constraints' | 'reach' | 'commit'
 
+// A pleasing static 3/4 rest pose, tuned per shape (the plumb bob hangs near
+// upright; the others sit at a turned 3/4 view).
+const REST: Record<GateShape, [number, number, number]> = {
+  collision: [0.25, -0.5, 0],
+  stability: [0.1, -0.3, 0],
+  constraints: [0.46, -0.34, 0.05],
+  reach: [0.2, -0.42, 0],
+  commit: [0.2, -0.5, 0],
+}
+
 function buildShape(shape: GateShape, color: string): THREE.Object3D {
-  const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.34, roughness: 0.3 })
+  const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.28, roughness: 0.32 })
   const m = (geo: THREE.BufferGeometry) => new THREE.Mesh(geo, mat)
   const g = new THREE.Group()
 
@@ -22,19 +32,27 @@ function buildShape(shape: GateShape, color: string): THREE.Object3D {
     const b = m(new THREE.BoxGeometry(0.85, 0.85, 0.85)); b.position.set(0.28, -0.1, -0.1); b.rotation.set(0.1, -0.4, 0.1)
     g.add(a, b)
   } else if (shape === 'stability') {
-    // a clean plumb-bob teardrop: round body tapering to a point
-    const body = m(new THREE.SphereGeometry(0.46, 32, 22)); body.position.y = 0.22
-    const tip = m(new THREE.ConeGeometry(0.46, 0.66, 32)); tip.rotation.x = Math.PI; tip.position.y = -0.13
-    g.add(body, tip)
+    // a real plumb bob: one lathe-turned teardrop profile (no seam), hanging
+    // from a thin string with a small loop — the brand mark.
+    const prof = [
+      [0.015, 0.60], [0.13, 0.50], [0.26, 0.36], [0.36, 0.16],
+      [0.40, -0.02], [0.36, -0.22], [0.24, -0.44], [0.02, -0.70],
+    ].map(([x, y]) => new THREE.Vector2(x, y))
+    const bob = m(new THREE.LatheGeometry(prof, 56)); g.add(bob)
+    const loop = m(new THREE.TorusGeometry(0.07, 0.022, 16, 32)); loop.position.y = 0.7; loop.rotation.x = Math.PI / 2; g.add(loop)
+    const string = m(new THREE.CylinderGeometry(0.014, 0.014, 0.34, 10)); string.position.y = 0.78; g.add(string)
   } else if (shape === 'constraints') {
-    const r1 = m(new THREE.TorusGeometry(0.45, 0.15, 20, 44)); r1.position.x = -0.26
-    const r2 = m(new THREE.TorusGeometry(0.45, 0.15, 20, 44)); r2.position.x = 0.26; r2.rotation.y = Math.PI / 2
-    g.add(r1, r2)
+    // two interlocking chain links: perpendicular rings that pass through each
+    // other (relations that bind). Offset < radius so they genuinely interlink.
+    const ring = () => m(new THREE.TorusGeometry(0.4, 0.115, 26, 72))
+    const a = ring(); a.position.x = -0.24
+    const b = ring(); b.position.x = 0.24; b.rotation.y = Math.PI / 2
+    g.add(a, b)
   } else if (shape === 'reach') {
     const pts = [new THREE.Vector3(-0.7, -0.5, 0), new THREE.Vector3(-0.1, 0.1, 0.2), new THREE.Vector3(0.45, -0.1, -0.2), new THREE.Vector3(0.75, 0.55, 0)]
-    const tube = m(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.07, 10, false))
+    const tube = m(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, 0.06, 14, false))
     g.add(tube)
-    for (const p of [pts[0], pts[3]]) { const s = m(new THREE.SphereGeometry(0.17, 20, 20)); s.position.copy(p); g.add(s) }
+    for (const p of [pts[0], pts[3]]) { const s = m(new THREE.SphereGeometry(0.16, 24, 24)); s.position.copy(p); g.add(s) }
   } else {
     const shaft = m(new THREE.CylinderGeometry(0.1, 0.1, 0.85, 16)); shaft.rotation.z = -Math.PI / 2; shaft.position.x = -0.1
     const head = m(new THREE.ConeGeometry(0.26, 0.42, 24)); head.rotation.z = -Math.PI / 2; head.position.x = 0.52
@@ -65,7 +83,7 @@ export function GateIcon3D({ shape, color, size = 42 }: { shape: GateShape; colo
     const rim = new THREE.DirectionalLight(0x9fd4cc, 0.5); rim.position.set(-3, -1, -2); scene.add(rim)
 
     const obj = buildShape(shape, color)
-    obj.rotation.set(0.25, -0.5, 0) // a pleasing static 3/4 rest pose
+    obj.rotation.set(...REST[shape]) // a pleasing static rest pose, per shape
     scene.add(obj)
     const draw = () => renderer.render(scene, cam)
     draw() // one static frame — no animation at rest

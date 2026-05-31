@@ -1,20 +1,18 @@
 """
-HuggingFace Inference API mask providers — the true-ML half of the source.
+HuggingFace mask provider — the ML source, via HF Inference Providers.
 
-No local torch/transformers: these POST a rendered view to the HF Inference API and turn
-the response into a per-part mask. The single network seam is ``_hf_request`` (mocked in
-tests). Token resolves like the Gemini key: env ``HF_TOKEN`` / ``HUGGINGFACEHUB_API_TOKEN``
-with a gitignored ``.hf_token`` repo-root fallback. Unavailable (no token) → the rail
-greys the row out, exactly like the Gemini gate.
+HF retired the old ``api-inference.huggingface.co`` serverless host for the
+``router.huggingface.co/hf-inference`` Inference-Providers router; only a curated set of
+models is served there. ``part_segmentation`` uses ``segformer`` (image-segmentation,
+confirmed served). Token resolves like the Gemini key: env ``HF_TOKEN`` /
+``HUGGINGFACEHUB_API_TOKEN`` with a gitignored ``.hf_token`` repo-root fallback.
 
-Per-part projection without a camera matrix is approximate: we sample the 2D model output
-by the part's vertical band (centroid height → image row). Documented as refine-later in
-the spec; the *shape* of the integration is what matters here.
+Per-part projection without a camera matrix is approximate: parts are assigned to a segment
+label by vertical band (centroid height → image band). Documented as refine-later.
 """
 
 from __future__ import annotations
 
-import io
 import json
 import os
 import urllib.request
@@ -24,8 +22,8 @@ import numpy as np
 
 from ..registry import MaskProvider, register
 
-SALIENCY_MODEL = os.environ.get("PLUMB_HF_SALIENCY_MODEL", "Intel/dpt-hybrid-midas")
 SEGMENT_MODEL = os.environ.get("PLUMB_HF_SEGMENT_MODEL", "nvidia/segformer-b0-finetuned-ade-512-512")
+_ROUTER = "https://router.huggingface.co/hf-inference/models"
 _KEY_FILE = Path(__file__).resolve().parents[3] / ".hf_token"
 
 
@@ -43,31 +41,17 @@ def available() -> bool:
     return bool(_hf_token())
 
 
-def _post(model: str, image_bytes: bytes) -> bytes:
+def _hf_request(model: str, image_bytes: bytes):
+    """The mockable network seam — POST an image, return the parsed JSON response."""
     req = urllib.request.Request(
-        f"https://api-inference.huggingface.co/models/{model}",
-        data=image_bytes,
-        headers={"Authorization": f"Bearer {_hf_token()}", "Content-Type": "application/octet-stream"},
+        f"{_ROUTER}/{model}", data=image_bytes,
+        headers={"Authorization": f"Bearer {_hf_token()}", "Content-Type": "image/png"},
     )
     with urllib.request.urlopen(req, timeout=60) as resp:
-        return resp.read()
+        return json.loads(resp.read().decode("utf-8"))
 
 
-def _hf_request(kind: str, image_bytes: bytes):
-    """The mockable seam. Returns a HxW float map (saliency) or list[{label,score}] (segments)."""
-    if kind == "saliency":
-        from PIL import Image
-        raw = _post(SALIENCY_MODEL, image_bytes)
-        img = Image.open(io.BytesIO(raw)).convert("L")
-        arr = np.asarray(img, dtype=np.float32)
-        return arr
-    if kind == "segments":
-        raw = _post(SEGMENT_MODEL, image_bytes)
-        return json.loads(raw.decode("utf-8"))
-    raise ValueError(kind)
-
-
-def _znorm(asset) -> list[tuple[str, float]]:
+def _znorm(asset):
     """Each part id with its centroid height normalised to [0,1] (bottom→top)."""
     cents = [(p["id"], float(np.asarray(p.get("centroid", [0, 0, 0]), float)[2])) for p in asset.parts]
     if not cents:
@@ -78,22 +62,8 @@ def _znorm(asset) -> list[tuple[str, float]]:
     return [(pid, (z - lo) / span) for pid, z in cents]
 
 
-def _saliency(asset, images) -> dict:
-    smap = _hf_request("saliency", images[0])
-    smap = (smap - smap.min()) / ((smap.max() - smap.min()) or 1.0)
-    h = smap.shape[0]
-    vals = {}
-    for pid, zn in _znorm(asset):
-        row = int(round((1.0 - zn) * (h - 1)))           # top of image = high z
-        vals[pid] = float(smap[row].mean())
-    if not vals:
-        vals = {"part_00": 0.0}
-    lo, hi = float(min(vals.values())), float(max(vals.values()))
-    return {"per_part": vals, "range": [lo, hi], "ramp": "magma"}
-
-
 def _part_segmentation(asset, images) -> dict:
-    segs = _hf_request("segments", images[0])
+    segs = _hf_request(SEGMENT_MODEL, images[0])
     labels = [s.get("label", f"seg_{i}") for i, s in enumerate(segs)] or ["region"]
     palette = ["#34C0AD", "#D9A84C", "#7E8AA0", "#E0694F", "#6E8B7A", "#A088B0", "#B58A5A"]
     ordered = sorted(_znorm(asset), key=lambda kv: kv[1])  # bottom → top
@@ -109,7 +79,5 @@ def _part_segmentation(asset, images) -> dict:
     return {"regions": list(regions.values())}
 
 
-register(MaskProvider("saliency", "Saliency", "hf", "artistic", "scalar",
-                      True, available, _saliency))
 register(MaskProvider("part_segmentation", "Part segmentation", "hf", "physics", "categorical",
                       True, available, _part_segmentation))

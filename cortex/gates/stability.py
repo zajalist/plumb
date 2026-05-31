@@ -41,22 +41,28 @@ STABILITY_MARGIN_M = 0.02
 _FIX_EPS = 1e-4
 
 
-def support_polygon(pap, transform: Transform) -> list[list[float]]:
+def support_polygon(pap, transform: Transform, anchored: bool = True) -> list[list[float]]:
     """World-XY contact footprint of ``pap`` placed at ``transform``.
 
     Uses the authored ``pap.structural.support_footprint`` (a 2D hull of ground-contact
     points in the asset's local frame) when it is present; otherwise derives an
     axis-aligned rectangle from the asset's bounding-box half-extents — the closest
     a PAP-only call can get to "the lowest convex part's hull projected to the floor".
-    Each local point is lifted to 3D (z = 0), pushed through the transform (scale →
-    rotate → translate), then projected back to XY by dropping Z.
+    Each local point is lifted to 3D (z = 0), pushed through the transform, then projected
+    back to XY by dropping Z.
+
+    ``anchored`` (default) keeps the footprint at the origin — the *pedestal* model, where
+    sliding the body moves its CoM over a stationary support (the gallery beat). With
+    ``anchored=False`` the footprint **translates with the body** — the *free-standing*
+    model, where an object rests on its own base wherever it sits (a tree on terrain);
+    such a body topples only when tilt or slope carries its CoM off its own base.
     """
     local = _local_footprint(pap)
-    world = _project_to_world_xy(local, transform)
+    world = _project_to_world_xy(local, transform, anchored=anchored)
     return [[float(x), float(y)] for x, y in world]
 
 
-def stability(pap, transform: Transform) -> GateResult:
+def stability(pap, transform: Transform, anchored: bool = True) -> GateResult:
     """Signed CoM-over-support-polygon margin for ``pap`` at ``transform``.
 
     Returns a :class:`GateResult` whose ``value_m`` is the margin (``+`` inside the
@@ -64,8 +70,11 @@ def stability(pap, transform: Transform) -> GateResult:
     On failure it attaches a horizontal ``fix.translate`` pointing the projected CoM
     back toward the polygon centroid, scaled to restore the margin, plus a viz hint and
     a human ``detail`` string. Pure and deterministic — also the solver's cost function.
+
+    ``anchored=False`` switches to the free-standing model (footprint co-moves with the
+    body) — used for objects resting on a ground plane, e.g. forest trees on terrain.
     """
-    poly = Polygon(support_polygon(pap, transform))
+    poly = Polygon(support_polygon(pap, transform, anchored=anchored))
     com_xy = _world_com_xy(pap, transform)
 
     margin = _signed_margin(com_xy, poly)
@@ -117,17 +126,19 @@ def _bbox_rectangle(pap) -> np.ndarray:
     )
 
 
-def _project_to_world_xy(local_xy: np.ndarray, transform: Transform) -> np.ndarray:
+def _project_to_world_xy(
+    local_xy: np.ndarray, transform: Transform, anchored: bool = True
+) -> np.ndarray:
     """Orient the contact footprint into world XY through ``transform``.
 
-    The footprint is the body's contact patch with a supporting surface, so it is
-    world-anchored: the transform's scale and rotation orient it, but its *translation*
-    is deliberately NOT applied — sliding the body (changing ``transform.pos``) must
-    move the CoM over a stationary base, which is exactly what lets a ``fix`` restore
-    stability. Points are lifted to z = 0; the world Z is then dropped.
+    When ``anchored`` (the pedestal model), the transform's scale and rotation orient the
+    footprint but its *translation* is deliberately NOT applied — sliding the body moves
+    the CoM over a stationary base, which is what lets a ``fix`` restore stability. When
+    not anchored (free-standing on a ground plane), the translation IS applied so the base
+    co-moves with the body. Points are lifted to z = 0; the world Z is then dropped.
     """
     pts3 = np.column_stack([local_xy, np.zeros(len(local_xy))])
-    world3 = _apply_transform(pts3, transform, translate=False)
+    world3 = _apply_transform(pts3, transform, translate=not anchored)
     return world3[:, :2]
 
 

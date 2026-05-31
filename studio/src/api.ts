@@ -8,6 +8,7 @@ export type Part = {
   material: string; conf: number; source: string; confirmed: boolean
   volume_m3: number; vol_frac: number; mass_kg: number; mass_frac: number
   hollow: boolean; centroid: number[]; extent: number[]; color: string
+  shell?: boolean                          // inherent thin surface (foliage/cloth/one-sided) — area-based, not closeable
   verts?: number[][]; tris?: number[][]   // convex-part geometry for the masks view
 }
 export type PAP = {
@@ -52,14 +53,37 @@ export async function health(): Promise<Health> {
 // depth = slab tolerance) sent by the viewport's cap tool to close a specific opening.
 export type CapPlane = { origin: number[]; normal: number[]; half: number; depth: number }
 
-// The outcome of a manual cap, surfaced to the user: did it seal / refine / miss, with
-// the mass & volume before and after so they can see the effect.
+// The outcome of a cap (auto hole-fill or manual plane), surfaced to the user: did it
+// seal / refine / miss / find a shell mesh, with mass & volume before and after.
 export type CapResult = {
-  status: 'sealed' | 'refined' | 'none' | 'error'
+  status: 'sealed' | 'refined' | 'shell' | 'none' | 'error'
+  mode: 'auto' | 'manual'
   before: { mass: number; vol: number }   // vol in m³
   after: { mass: number; vol: number }
   watertight: boolean
+  sealed?: number                          // # solid regions now closed
+  total?: number                           // # solid (closeable) regions
+  shellMesh?: boolean                      // every region is an area-based shell
   message?: string
+}
+
+// Classify a cap outcome from the before/after PAPs (the per-mask `shell`/`hollow` flags
+// tell us whether anything is even closeable). Pure — the UI renders it as a result card.
+export function classifyCap(before: PAP | undefined, after: PAP, mode: 'auto' | 'manual'): CapResult {
+  const parts = after.parts ?? []
+  const solids = parts.filter((p) => !p.shell)
+  const sealed = solids.filter((p) => !p.hollow).length
+  const shellMesh = parts.length > 0 && solids.length === 0
+  const bMass = before?.physical.mass_kg ?? 0, bVol = before?.geometry.volume_m3 ?? 0
+  const aMass = after.physical.mass_kg, aVol = after.geometry.volume_m3
+  const changed = Math.abs(aMass - bMass) > Math.max(1e-4, bMass * 1e-4)
+    || Math.abs(aVol - bVol) > Math.max(1e-9, bVol * 1e-4)
+  const status: CapResult['status'] =
+    after.geometry.watertight && !before?.geometry.watertight ? 'sealed'
+      : shellMesh ? 'shell'
+        : changed ? 'refined' : 'none'
+  return { status, mode, before: { mass: bMass, vol: bVol }, after: { mass: aMass, vol: aVol },
+    watertight: after.geometry.watertight, sealed, total: solids.length, shellMesh }
 }
 export type BakeOpts = { materials?: Record<string, string>; profile?: string; decimate?: number; cap?: boolean; capPlane?: CapPlane; extras?: File[] }
 

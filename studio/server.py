@@ -49,6 +49,7 @@ class Placement(BaseModel):
     object: str
     pos: list[float]
     quat: list[float] = [0.0, 0.0, 0.0, 1.0]
+    scale: list[float] = [1.0, 1.0, 1.0]
 
 
 def _place(p: Placement):
@@ -57,7 +58,7 @@ def _place(p: Placement):
 
     if p.object not in _ASSETS:
         raise HTTPException(status_code=404, detail=f"unknown asset {p.object!r}; bake it first")
-    tf = Transform(pos=p.pos, quat=p.quat)
+    tf = Transform(pos=p.pos, quat=p.quat, scale=p.scale)
     world = _world()
     if p.object in world.nodes():
         world.update_transform(p.object, tf)
@@ -460,6 +461,7 @@ async def compute_mask(
     import cortex.masks as masks
     from cortex.masks import store
     from cortex.masks.registry import Asset
+    from fastapi.concurrency import run_in_threadpool
 
     masks.load_providers()
     if asset_id not in _ASSETS:
@@ -467,7 +469,9 @@ async def compute_mask(
     img_bytes = [await f.read() for f in images] if images else []
     asset = Asset(asset_id, pap=_ASSETS[asset_id], parts=store.load_parts(asset_id), images=img_bytes)
     try:
-        mask = masks.compute(asset, provider_key)
+        # Run the heavy CPU/network compute OFF the event loop so the backend (and the
+        # studio) stay responsive — otherwise a single compute freezes every request.
+        mask = await run_in_threadpool(masks.compute, asset, provider_key)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except (RuntimeError, ValueError) as e:

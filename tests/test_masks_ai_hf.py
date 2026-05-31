@@ -33,25 +33,13 @@ def _asset():
     ], images=[b"fake-png"])
 
 
-def test_hf_saliency_mocked(tmp_path, monkeypatch):
-    monkeypatch.setattr(store, "BAKES_DIR", tmp_path / "bakes")
-    monkeypatch.setattr(hf, "_hf_token", lambda: "tok")          # → available
-    # bright top half, dark bottom half
-    smap = np.vstack([np.full((10, 8), 0.9, np.float32), np.full((10, 8), 0.1, np.float32)])
-    monkeypatch.setattr(hf, "_hf_request", lambda kind, img: smap)
-    m = registry.compute(_asset(), "saliency")
-    assert m.archetype == "scalar" and m.source == "hf"
-    # the high part samples the bright top rows → higher saliency than the low part
-    assert m.data["per_part"]["part_01"] > m.data["per_part"]["part_00"]
-
-
 def test_hf_part_segmentation_mocked(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "BAKES_DIR", tmp_path / "bakes")
     monkeypatch.setattr(hf, "_hf_token", lambda: "tok")
-    monkeypatch.setattr(hf, "_hf_request", lambda kind, img: [
+    monkeypatch.setattr(hf, "_hf_request", lambda model, img: [
         {"label": "base", "score": 0.9}, {"label": "shaft", "score": 0.8}])
     m = registry.compute(_asset(), "part_segmentation")
-    assert m.archetype == "categorical"
+    assert m.archetype == "categorical" and m.source == "hf"
     labels = {r["label"] for r in m.data["regions"]}
     assert labels <= {"base", "shaft"} and labels
 
@@ -60,7 +48,7 @@ def test_hf_unavailable_without_token(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "BAKES_DIR", tmp_path / "bakes")
     monkeypatch.setattr(hf, "_hf_token", lambda: None)
     try:
-        registry.compute(_asset(), "saliency")
+        registry.compute(_asset(), "part_segmentation")
         assert False, "expected unavailable"
     except RuntimeError:
         pass

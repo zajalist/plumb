@@ -29,7 +29,7 @@ def test_providers_catalog():
     r = client.get("/masks/providers")
     assert r.status_code == 200
     keys = {p["key"] for p in r.json()["providers"]}
-    assert {"materials", "curvature", "gravity_field", "saliency", "fragility"} <= keys
+    assert {"materials", "curvature", "gravity_field", "part_segmentation", "fragility"} <= keys
 
 
 def test_health_has_hf():
@@ -71,5 +71,5 @@ def test_compute_unavailable_provider_without_key(tmp_path, monkeypatch):
     aid = "api_asset2"
     _ASSETS[aid] = BRONZE_FIGURE
     store.save_parts(aid, [_box_part("part_00", [0, 0, 0], [0.2, 0.2, 0.2], "stone")])
-    r = client.post(f"/masks/{aid}/compute", data={"provider_key": "saliency"})
+    r = client.post(f"/masks/{aid}/compute", data={"provider_key": "part_segmentation"})
     assert r.status_code == 503

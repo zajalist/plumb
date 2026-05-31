@@ -80,6 +80,12 @@ def validate_operation(
         Full gate stack result.  ``ok`` is ``True`` iff no hard gate failed.
     """
     laws = laws or []
+    # A ``{"law": "free_standing"}`` marks the scene as objects resting on a ground plane
+    # (e.g. forest trees on terrain): their support base co-moves with them, so stability
+    # only fails on tilt/slope, not on lateral position. Absent → the pedestal model. It's
+    # a scene-mode flag, not a constraint, so it's filtered out before the constraints gate.
+    free_standing = any(spec.get("law") == "free_standing" for spec in laws)
+    constraint_laws = [spec for spec in laws if spec.get("law") != "free_standing"]
 
     # --- 1. Apply diff to a deep copy ----------------------------------------
     staged = _apply_diff(world, diff)
@@ -107,7 +113,7 @@ def validate_operation(
         gate_results.append(GateResult(gate=GateName.stability, skipped=True))
     else:
         node = staged.get(obj_id)
-        stab_result = _stability_gate(node.pap, node.transform)
+        stab_result = _stability_gate(node.pap, node.transform, anchored=not free_standing)
         gate_results.append(stab_result)
         if not stab_result.ok:
             stopped_at = GateName.stability
@@ -117,7 +123,7 @@ def validate_operation(
     if halt:
         gate_results.append(GateResult(gate=GateName.constraints, skipped=True))
     else:
-        con_result = _constraints_gate(staged, laws)
+        con_result = _constraints_gate(staged, constraint_laws)
         gate_results.append(con_result)
         # Soft violations: accumulate into soft_cost but do NOT halt.
         soft_cost += float(con_result.value_m or 0.0)

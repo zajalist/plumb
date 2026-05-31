@@ -25,6 +25,8 @@ plumb-refined.png
 
 # Secrets — Gemini API key fallback (semantics.py reads this if env unset)
 .gemini_key
+# Secrets — Hugging Face token fallback (mask providers read this if env unset)
+.hf_token
 
 # studio test artifacts / screenshots
 studio/test_figure.obj

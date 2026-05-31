@@ -2,7 +2,7 @@
 // One surface mask (radio semantics) recolours the mesh; overlays (eye toggles) stack.
 // Presentational: the parent (Viewport) owns state, computes on activate, and gates
 // availability. Auto-compute shows a thin per-row progress bar (no spinner).
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Icon } from './Icons'
 import type { Mask, MaskProviderMeta } from './masks'
 
@@ -26,23 +26,16 @@ function pill(source: string): string {
   return source === 'hf' ? 'hf' : source === 'gemini' ? 'gem' : source === 'mcp' ? 'mcp' : 'geo'
 }
 
-function Row({ p, active, computing, error, computed, onClick }: {
-  p: MaskProviderMeta; active: boolean; computing: boolean; error?: string
-  computed?: Mask; onClick: () => void
+function Row({ p, active, computing, error, onClick }: {
+  p: MaskProviderMeta; active: boolean; computing: boolean; error?: string; onClick: () => void
 }) {
   const disabled = !p.available
   const eye = active ? 'eye' : 'eye-off'
-  const swatch = computed?.legend?.kind === 'ramp'
-    ? 'linear-gradient(90deg,#2b6cb0,#34C0AD,#D9A84C,#E0694F)'
-    : computed?.legend?.kind === 'swatches'
-      ? `linear-gradient(90deg, ${(computed.legend.items.slice(0, 3).map((s) => s.color).join(',')) || '#666'})`
-      : '#5e676e'
   return (
     <div className={`mrow${active ? ' sel' : ''}${disabled ? ' dis' : ''}`}
          onClick={disabled ? undefined : onClick}
          title={disabled ? `unavailable — set ${p.source.toUpperCase()} key` : p.name}>
       <Icon name={eye} className={`mrow-eye${active ? ' on' : ''}`} />
-      <span className="mrow-dot" style={{ background: swatch }} />
       <span className="mrow-name">{p.name}</span>
       {error
         ? <span className="mrow-err">{error}</span>
@@ -54,9 +47,8 @@ function Row({ p, active, computing, error, computed, onClick }: {
   )
 }
 
-export function MaskRail({ catalog, masks, surface, overlays, computing, errors, onSurface, onOverlay }: Props) {
+export function MaskRail({ catalog, surface, overlays, computing, errors, onSurface, onOverlay }: Props) {
   const [q, setQ] = useState('')
-  const byId = useMemo(() => new Map(masks.map((m) => [m.id, m])), [masks])
   const match = (p: MaskProviderMeta) => p.name.toLowerCase().includes(q.toLowerCase())
 
   const surfaces = [TEXTURED, ...catalog.filter((p) => p.role === 'surface')].filter(match)
@@ -74,16 +66,16 @@ export function MaskRail({ catalog, masks, surface, overlays, computing, errors,
       <div className="mrail-cat"><Icon name="caret" />Surface<span className="cnt">{surface} · {surfaces.length}</span></div>
       {surfaces.map((p) => (
         <Row key={p.key} p={p} active={surface === p.key} computing={computing.has(p.key)}
-             error={errors[p.key]} computed={byId.get(p.key)} onClick={() => onSurface(p.key)} />
+             error={errors[p.key]} onClick={() => onSurface(p.key)} />
       ))}
 
       <div className="mrail-cat"><Icon name="caret" />Overlays<span className="cnt">{activeOverlays} · {ovs.length}</span></div>
       {ovs.map((p) => (
         <Row key={p.key} p={p} active={overlays.has(p.key)} computing={computing.has(p.key)}
-             error={errors[p.key]} computed={byId.get(p.key)} onClick={() => onOverlay(p.key)} />
+             error={errors[p.key]} onClick={() => onOverlay(p.key)} />
       ))}
 
-      <div className="mrail-add"><Icon name="plus" />Add mask…<span className="mpill add">hf · gem · mcp</span></div>
+      <div className="mrail-add"><Icon name="plus" />Add mask…</div>
     </div>
   )
 }

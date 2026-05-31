@@ -1,11 +1,25 @@
 import { useRef, useState, type DragEvent } from 'react'
 import { Icon } from './Icons'
+import { SearchSelect } from './SearchSelect'
+import { PROFILE_OPTIONS, PROFILE_BASE } from './lib/bakeCatalog'
 import type { Asset } from './AssetsPanel'
 
 // Bake-staging settings tweaked before/while baking dropped meshes.
-export type BakeSettings = { profile: string; simplify: boolean }
+export type BakeSettings = {
+  profile: string          // default profile applied to newly dropped meshes
+  simplify: boolean        // decimate dense meshes before decomposition
+  decimate?: number        // target face count when simplify is on
+  autoCap?: boolean        // auto-close open meshes so mass/volume are real
+}
 
-const PROFILES = ['rigid_prop', 'door', 'tree', 'shelf']
+// hint keyed by engine archetype (presets map to one of these via PROFILE_BASE)
+const PROFILE_HINT: Record<string, string> = {
+  rigid_prop: 'Static prop — single rigid body.',
+  door: 'Hinged — swept hull over the joint range.',
+  tree: 'Foliage — trunk/canopy split.',
+  shelf: 'Container — load surfaces + capacity.',
+}
+const profileHint = (v: string) => PROFILE_HINT[PROFILE_BASE[v] ?? v] ?? 'Custom preset.'
 const ACCEPT = '.obj,.glb,.gltf,.stl,.uasset,.bin,.png,.jpg,.jpeg,.webp,.ktx2'
 
 function statusLabel(s: Asset['status']): string {
@@ -37,11 +51,14 @@ function readEntry(entry: any, out: File[]): Promise<void> {
 
 // The screen between import and the editor: drop 3D items, tweak bake settings,
 // watch each one bake with a progress bar, then enter the editor.
-export function Stage({ assets, settings, setSettings, onAddFiles, onEnter, ueAvailable }: {
+export function Stage({ assets, settings, setSettings, onAddFiles, onBake, onUpdateAsset, onRemove, onEnter, ueAvailable }: {
   assets: Asset[]
   settings: BakeSettings
   setSettings: (s: BakeSettings) => void
   onAddFiles: (files: File[]) => void
+  onBake: () => void
+  onUpdateAsset: (id: string, patch: Partial<Asset>) => void
+  onRemove: (id: string) => void
   onEnter: () => void
   ueAvailable: boolean
 }) {
@@ -66,7 +83,8 @@ export function Stage({ assets, settings, setSettings, onAddFiles, onEnter, ueAv
   }
 
   const ready = assets.filter((a) => a.status === 'ok').length
-  const active = assets.some((a) => a.status === 'queued' || a.status === 'converting' || a.status === 'baking')
+  const queued = assets.filter((a) => a.status === 'queued' && a.file).length
+  const baking = assets.some((a) => a.status === 'converting' || a.status === 'baking')
   const ext = (n: string) => { const m = /\.([a-z0-9]+)$/i.exec(n); return m ? m[1].toUpperCase() : '3D' }
 
   return (
@@ -106,18 +124,34 @@ export function Stage({ assets, settings, setSettings, onAddFiles, onEnter, ueAv
           <section className="upanel">
             <header className="upanel-hd"><Icon name="aperture" /><span>Bake Settings</span></header>
             <div className="upanel-bd stage-settings">
-              <div className="ss-row">
-                <span className="ss-k">Profile</span>
-                <select className="ss-sel" value={settings.profile}
-                  onChange={(e) => setSettings({ ...settings, profile: e.target.value })}>
-                  {PROFILES.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
+              <div className="ss-row ss-stack">
+                <span className="ss-k">Default profile</span>
+                <SearchSelect value={settings.profile} options={PROFILE_OPTIONS}
+                  placeholder="Search profiles…"
+                  onChange={(v) => setSettings({ ...settings, profile: v })} />
               </div>
+              <div className="ss-hint">{profileHint(settings.profile)} Override per mesh in the queue.</div>
+              <div className="ss-div" />
               <label className="ss-row ss-toggle">
                 <span className="ss-k">Simplify dense meshes</span>
                 <input type="checkbox" checked={settings.simplify}
                   onChange={(e) => setSettings({ ...settings, simplify: e.target.checked })} />
               </label>
+              {settings.simplify && (
+                <div className="ss-row ss-sub">
+                  <span className="ss-k">Target faces</span>
+                  <input className="ss-num" type="number" min={500} max={200000} step={500}
+                    value={settings.decimate ?? 6000}
+                    onChange={(e) => setSettings({ ...settings, decimate: Math.max(500, Number(e.target.value) || 6000) })} />
+                </div>
+              )}
+              <label className="ss-row ss-toggle">
+                <span className="ss-k">Auto-close open meshes</span>
+                <input type="checkbox" checked={!!settings.autoCap}
+                  onChange={(e) => setSettings({ ...settings, autoCap: e.target.checked })} />
+              </label>
+              <div className="ss-hint">Caps open surfaces so mass &amp; volume are computed, not estimated.</div>
+              <div className="ss-div" />
               <div className="ss-note">{ueAvailable
                 ? 'Unreal .uasset conversion is wired up.'
                 : '.uasset needs Unreal (set PLUMB_UE_CMD + PLUMB_UE_PROJECT).'}</div>
@@ -139,11 +173,22 @@ export function Stage({ assets, settings, setSettings, onAddFiles, onEnter, ueAv
                       <div className="sq-top">
                         <span className="sq-name">{a.name}</span>
                         <span className="sq-status mono">{statusLabel(a.status)}</span>
+                        <button className="sq-x" title="Remove from queue"
+                          onClick={() => onRemove(a.id)}>✕</button>
                       </div>
-                      <div className="sq-bar"><span className={`sq-fill ${a.status}`} /></div>
+                      {a.status === 'queued' && a.file ? (
+                        <div className="sq-prof">
+                          <span className="sq-prof-k">Profile</span>
+                          <SearchSelect value={a.profile ?? settings.profile} options={PROFILE_OPTIONS}
+                            placeholder="Search profiles…"
+                            onChange={(v) => onUpdateAsset(a.id, { profile: v })} />
+                        </div>
+                      ) : (
+                        <div className="sq-bar"><span className={`sq-fill ${a.status}`} /></div>
+                      )}
                       <div className="sq-meta mono">
                         {a.status === 'ok' && a.pap
-                          ? `${a.pap.parts?.length ?? a.pap.geometry.convex_parts} masks · ${a.pap.physical.mass_kg.toFixed(1)} kg`
+                          ? `${a.profile ?? settings.profile} · ${a.pap.parts?.length ?? a.pap.geometry.convex_parts} masks · ${a.pap.physical.mass_kg.toFixed(1)} kg`
                           : a.status === 'error'
                             ? <span style={{ color: 'var(--fail)' }}>{a.error}</span>
                             : a.name.toLowerCase().endsWith('.uasset') ? 'unreal asset' : ''}
@@ -158,8 +203,15 @@ export function Stage({ assets, settings, setSettings, onAddFiles, onEnter, ueAv
       </div>
 
       <div className="stage-foot">
-        <button className="stage-enter" onClick={onEnter} disabled={active}>
-          {active ? 'Baking…' : ready > 0 ? `Enter editor · ${ready} asset${ready > 1 ? 's' : ''} →` : 'Enter editor →'}
+        {ready > 0 && queued > 0 && !baking && (
+          <button className="stage-enter ghost" onClick={onEnter}>Enter editor · {ready} →</button>
+        )}
+        <button className="stage-enter" disabled={baking || (queued === 0 && ready === 0)}
+          onClick={queued > 0 ? onBake : onEnter}>
+          {baking ? 'Baking…'
+            : queued > 0 ? `Bake ${queued} mesh${queued > 1 ? 'es' : ''}`
+            : ready > 0 ? `Enter editor · ${ready} asset${ready > 1 ? 's' : ''} →`
+            : 'Drop a mesh to begin'}
         </button>
       </div>
     </div>

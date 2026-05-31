@@ -32,23 +32,27 @@ function paint(g: ColorGroup, color: THREE.Color) {
   }
 }
 
+// Resolve a per-part value for each group: match by part id, else fall back to index order
+// (the model's material groups and the bake's parts enumerate the same materials in order).
+function resolve<T>(groups: ColorGroup[], keyed: Record<string, T>): (T | undefined)[] {
+  const keys = Object.keys(keyed)
+  const byName = groups.some((g) => g.name in keyed)
+  return byName ? groups.map((g) => keyed[g.name]) : groups.map((_, i) => keyed[keys[i]])
+}
+
 export function applyCategorical(groups: ColorGroup[], regions: MaskData['regions'] = []) {
-  const byPart = new Map<string, string>()
-  for (const r of regions) for (const pid of r.part_ids ?? []) byPart.set(pid, r.color)
-  for (const g of groups) {
-    const hex = byPart.get(g.name)
-    paint(g, hex ? new THREE.Color(hex) : NEUTRAL)
-  }
+  const byPart: Record<string, string> = {}
+  for (const r of regions) for (const pid of r.part_ids ?? []) byPart[pid] = r.color
+  const colors = resolve(groups, byPart)
+  groups.forEach((g, i) => paint(g, colors[i] ? new THREE.Color(colors[i]) : NEUTRAL))
 }
 
 export function applyScalar(groups: ColorGroup[], perPart: Record<string, number> = {},
                             range: number[] = [0, 1], ramp = 'plasma') {
   const [lo, hi] = range
   const span = hi - lo || 1
-  for (const g of groups) {
-    const v = perPart[g.name]
-    paint(g, v == null ? NEUTRAL : rampColor((v - lo) / span, ramp))
-  }
+  const vals = resolve(groups, perPart)
+  groups.forEach((g, i) => paint(g, vals[i] == null ? NEUTRAL : rampColor((vals[i]! - lo) / span, ramp)))
 }
 
 // Overlay objects (markers / axes). Positions are canonical (parent supplies the frame).
