@@ -2,21 +2,39 @@
 name = "plumb"
 version = "0.1.0"
 description = "A spatial cortex and a language for physically-grounded, intent-aware 3D worlds."
-requires-python = ">=3.12"   # 3.14 confirmed working (no 3.12 on build box).
+requires-python = ">=3.12"   # 3.14 confirmed working incl. CoACD wheels (no 3.12 on build box).
 dependencies = [
+    # shared
     "pydantic>=2.7",
     "numpy>=1.26",
+    # cortex (Person A) — physics
+    "trimesh>=4.4",
+    "scipy>=1.13",
+    "shapely>=2.0",       # robust 2D polygon ops for stability/reach gates
+    "coacd",              # convex decomposition (replaces deprecated V-HACD)
+    "manifold3d",         # boolean engine for trimesh (hollow detection / shell fixtures)
+    "fastmcp",            # MCP server surface (cortex/server.py)
+    # conscience (Person B) — render / language / engine
     "rerun-sdk>=0.18",    # the 3D conscience (viewport, timeline, ViewCoordinates)
     "httpx>=0.27",        # UE5 Remote Control HTTP client
     "lark>=1.1",          # .wdf grammar / parser (full round-trip)
-    # cortex-only physics deps live on the `cortex` branch; B never imports them.
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.5", "pytest-httpserver>=1.0"]  # mock UE5 Remote Control server
+dev = ["pytest>=8", "ruff>=0.5", "pytest-httpserver>=1.0"]
+
+# --- setuptools: this repo ships TWO top-level packages (cortex, conscience) plus
+# two top-level modules (contracts, fixtures); declare them so editable install works
+# (avoids "Multiple top-level packages discovered in a flat-layout"). ---
+[tool.setuptools]
+py-modules = ["contracts", "fixtures"]
+
+[tool.setuptools.packages.find]
+include = ["cortex*", "conscience*"]
+namespaces = false
 
 [tool.pytest.ini_options]
-pythonpath = ["."]          # repo root on sys.path -> `import contracts`, `import conscience...`
+pythonpath = ["."]          # repo root on sys.path -> `import contracts`, `import cortex...`
 testpaths = ["tests"]
 addopts = "-q"
 

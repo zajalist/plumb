@@ -1,16 +1,70 @@
 """
-Shared test aids for the Conscience suite. Headless only — no GPU, no Unreal.
+Shared test helpers for the PLUMB test suite.
 
-Deliberately minimal: the `.wdf` sample text is authored by the wdf task from the
-spec (so it matches whatever grammar that task defines); here we only provide stable,
-cross-task aids — temp paths and an illustrative UE5 Remote Control payload for the
-mock HTTP server.
+Contains two sets of aids — keep both, they serve different subsystems:
+
+  * Cortex helpers (trimesh mesh builders) — deterministic geometry primitives
+    used by cortex bake/gate tests.  No external downloads; offline-safe.
+
+  * Conscience helpers (temp paths, UE5 mock payloads) — headless only, no GPU,
+    no Unreal; used by conscience unit + integration tests.
 """
 
 from __future__ import annotations
 
 import tempfile
 
+import numpy as np
+import trimesh
+
+
+# ── Cortex helpers — trimesh mesh builders ────────────────────────────────────
+
+def make_box(extents=(1.0, 1.0, 1.0), center=(0.0, 0.0, 0.0)) -> trimesh.Trimesh:
+    """Axis-aligned box of full `extents`, centered at `center`. Watertight."""
+    box = trimesh.creation.box(extents=extents)
+    box.apply_translation(np.asarray(center, dtype=float))
+    return box
+
+
+def two_part_topheavy() -> tuple[list[trimesh.Trimesh], dict[str, str]]:
+    """
+    A heavy small 'body' sitting high on a light wide 'base' — the canonical
+    top-heavy fixture. Returns ([base, body], {part_name: material}).
+
+    Density-weighted CoM must sit ABOVE the naive geometric centroid because the
+    bronze body is up top. That property is the proof the composition bake is real.
+    """
+    base = make_box(extents=(0.4, 0.4, 0.2), center=(0.0, 0.0, 0.1))
+    body = make_box(extents=(0.1, 0.1, 0.6), center=(0.0, 0.0, 0.5))
+    parts = [base, body]
+    materials = {"base": "stone", "body": "bronze"}
+    return parts, materials
+
+
+def hollow_shell(outer=0.5, wall=0.05) -> trimesh.Trimesh:
+    """A box shell (outer cube minus inner cube) — interior-ray test should read hollow."""
+    outer_box = trimesh.creation.box(extents=(outer, outer, outer))
+    inner = outer - 2 * wall
+    inner_box = trimesh.creation.box(extents=(inner, inner, inner))
+    try:
+        shell = outer_box.difference(inner_box)
+        if shell is not None and shell.volume > 0:
+            return shell
+    except Exception:
+        pass
+    return outer_box
+
+
+def save_mesh_tmp(mesh: trimesh.Trimesh, suffix: str = ".obj") -> str:
+    """Write a mesh to a temp file and return its path (for path-taking bake funcs)."""
+    f = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    f.close()
+    mesh.export(f.name)
+    return f.name
+
+
+# ── Conscience helpers — temp paths + UE5 Remote Control mock payloads ────────
 
 def tmp_path(suffix: str) -> str:
     """A throwaway temp file path (e.g. ".rrd" recordings, ".wdf" docs)."""
@@ -19,15 +73,11 @@ def tmp_path(suffix: str) -> str:
     return f.name
 
 
-# Illustrative UE5 Remote Control response for ONE tagged actor.
-# UE5 space: left-handed, Z-up, centimetres. The adapter must convert to canonical
-# (right-handed, metres). Shape is representative — the bridge task may refine it,
-# but the mock server should serve something like this so parsing is exercised.
 def mock_ue5_actor(
     actor_id: str = "/Game/Maps/Gallery.Gallery:PersistentLevel.BronzeFigure_3",
-    location_cm=(-100.0, 200.0, 300.0),     # UE5 cm, LH
-    rotation_quat=(0.0, 0.0, 0.0, 1.0),     # [x, y, z, w]
-    extent_cm=(15.0, 15.0, 75.0),           # half-extents in cm
+    location_cm=(-100.0, 200.0, 300.0),
+    rotation_quat=(0.0, 0.0, 0.0, 1.0),
+    extent_cm=(15.0, 15.0, 75.0),
 ) -> dict:
     return {
         "actorId": actor_id,
