@@ -23,6 +23,9 @@ Thumbs.db
 .playwright-mcp/
 plumb-refined.png
 
+# Secrets — Gemini API key fallback (semantics.py reads this if env unset)
+.gemini_key
+
 # studio test artifacts / screenshots
 studio/test_figure.obj
 studio-*.png

@@ -13,11 +13,12 @@ const SWATCH: Record<string, string> = {
 const MASK_PALETTE = ['#34C0AD', '#D9A84C', '#6E8BA0', '#E0694F', '#5FA38C', '#A088B0', '#C2925A', '#7C8AA0']
 const MATERIALS = ['default', 'wood', 'foliage', 'stone', 'metal', 'glass', 'plastic', 'fabric', 'bronze', 'water']
 
-export function Properties({ pap, footer, onConfirm, onCloseMesh, onEditPap, busy, declared }: {
+export function Properties({ pap, footer, onConfirm, onCapOpenings, capping, onEditPap, busy, declared }: {
   pap: PAP | null
   footer?: ReactNode
   onConfirm?: (materials: Record<string, string>) => void
-  onCloseMesh?: () => void   // re-bake with hole-filling to close an open mesh
+  onCapOpenings?: () => void   // launch the manual cap-plane tool in the viewport
+  capping?: boolean            // the cap tool is currently active
   // manual physics override — patches the PAP so the viewport updates live
   onEditPap?: (patch: { physical?: Partial<PAP['physical']>; geometry?: Partial<PAP['geometry']> }) => void
   busy?: boolean
@@ -116,10 +117,12 @@ export function Properties({ pap, footer, onConfirm, onCloseMesh, onEditPap, bus
             <span className="wt-ico">!</span>
             <div className="wt-body">
               <div className="wt-t">Mesh is not closed</div>
-              <div className="wt-d">Open surfaces — mass &amp; volume are <b>estimated</b>. Cap the openings to compute true values.</div>
+              <div className="wt-d">Open surfaces — mass &amp; volume are <b>estimated</b>. Place a cap plane over an opening to compute true values.</div>
             </div>
-            {onCloseMesh && (
-              <button className="wt-cap" disabled={busy} onClick={onCloseMesh}>{busy ? 'Capping…' : 'Cap openings'}</button>
+            {onCapOpenings && (
+              <button className={`wt-cap${capping ? ' on' : ''}`} disabled={busy} onClick={onCapOpenings}>
+                {capping ? 'Placing…' : 'Cap openings'}
+              </button>
             )}
           </div>
         )}

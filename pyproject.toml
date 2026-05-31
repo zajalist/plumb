@@ -11,6 +11,8 @@ dependencies = [
     "trimesh>=4.4",
     "scipy>=1.13",
     "shapely>=2.0",       # robust 2D polygon ops for stability/reach gates
+    "networkx>=3.0",      # trimesh path traversal (cross-section polygons for the cap tool)
+    "mapbox_earcut",      # polygon triangulation (the manual cap-plane floor)
     "coacd",              # convex decomposition (replaces deprecated V-HACD)
     "manifold3d",         # boolean engine for trimesh (hollow detection / shell fixtures)
     "fastmcp",            # MCP server surface (cortex/server.py)

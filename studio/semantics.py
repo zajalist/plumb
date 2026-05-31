@@ -31,8 +31,20 @@ _PROMPT = (
 )
 
 
+# Repo-root fallback file (gitignored). Lets the key be found regardless of which
+# shell launched uvicorn — env var still wins if set.
+_KEY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".gemini_key")
+
+
 def _key() -> str | None:
-    return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    env = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if env:
+        return env
+    try:
+        with open(_KEY_FILE, encoding="utf-8") as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
 
 
 def gemini_status() -> dict:
@@ -59,7 +71,11 @@ def semantic_bake(images: list[bytes], hint: str = "") -> dict:
     contents.append(_PROMPT + (f"\nHint about the asset: {hint}" if hint else ""))
     resp = client.models.generate_content(model=MODEL, contents=contents)
 
-    text = (resp.text or "").strip()
+    return _parse_json(resp.text)
+
+
+def _parse_json(text: str | None) -> dict:
+    text = (text or "").strip()
     start, end = text.find("{"), text.rfind("}")
     if start >= 0 and end > start:
         try:
@@ -67,3 +83,31 @@ def semantic_bake(images: list[bytes], hint: str = "") -> dict:
         except json.JSONDecodeError:
             pass
     return {"raw": text}
+
+
+_MASKS_PROMPT = (
+    "You are PLUMB's mask author. These are renders of ONE 3D asset. Reason about it and "
+    "respond with ONLY compact JSON, no prose:\n"
+    '{"affordances":[{"verb":"<agent action e.g. sit/grasp/place_on>","where":"top|middle|base|side|center"}],'
+    '"fragility":[{"band":"top|middle|bottom","score":0.0}],"confidence":0.0}\n'
+    "Rules: fragility score is 0 (sturdy) to 1 (very delicate) for that vertical third. "
+    "Give all three bands. affordances are concrete actions with a coarse location. Keep it concise."
+)
+
+
+def semantic_masks(images: list[bytes], hint: str = "") -> dict:
+    """Ask Gemini for mask-able semantics: located affordances + per-band fragility.
+
+    Returns ``{"affordances":[...], "fragility":[...], "confidence":float}``. Raises
+    ``RuntimeError`` if unconfigured. Shares the client/key logic with ``semantic_bake``.
+    """
+    if not _key():
+        raise RuntimeError("Gemini not configured (set GEMINI_API_KEY)")
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=_key())
+    contents: list = [types.Part.from_bytes(data=img, mime_type="image/png") for img in images]
+    contents.append(_MASKS_PROMPT + (f"\nHint about the asset: {hint}" if hint else ""))
+    resp = client.models.generate_content(model=MODEL, contents=contents)
+    return _parse_json(resp.text)
