@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import wasm from 'vite-plugin-wasm'
 import topLevelAwait from 'vite-plugin-top-level-await'
@@ -14,5 +14,10 @@ export default defineConfig({
   optimizeDeps: {
     // The Wasm viewer is large; don't let Vite try to pre-bundle / optimize it.
     exclude: ['@rerun-io/web-viewer', '@rerun-io/web-viewer-react'],
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test-setup.ts'],
   },
 })

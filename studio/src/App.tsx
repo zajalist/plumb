@@ -1,117 +1,110 @@
-import { useCallback, useRef, useState } from 'react'
-import { ReactFlowProvider } from '@xyflow/react'
-import RerunViewer, { type ViewerControls } from './components/RerunViewer'
-import ConstraintGraph from './components/ConstraintGraph'
-import Palette from './components/Palette'
-import { stabilityMargin, stableStatus, type SceneState } from './lib/engine'
-import { STATUS_COLOR } from './lib/theme'
+import { useState, useCallback, useEffect } from 'react'
+import { IconDefs, Icon } from './Icons'
+import { Brand } from './Brand'
+import { AssetsPanel, type Asset } from './AssetsPanel'
+import { Viewport } from './Viewport'
+import { Properties } from './Properties'
+import { Inspector } from './Inspector'
+import { GateStack } from './GateStack'
+import ConstraintGraph from './ConstraintGraph' // Fara's — unchanged
+import { bake, validate, repair, commit, type Verdict } from './api'
+import { attempts } from './verdicts'
 import './App.css'
 
-// The two demo beats — each pins the bronze x-offset and the viewer keyframe.
-const BEATS = [
-  { label: '① placed by vibes', x: 0.0, frac: 0 },
-  { label: '② repaired +6cm ✓', x: 0.06, frac: 1 },
-]
-const BRONZE_X_SAFE = 0.06 // maps the continuous knob onto the viewer's 0..1 range
-
 export default function App() {
-  const [scene, setScene] = useState<SceneState>({ bronzeX: 0 })
-  const [bottomH, setBottomH] = useState(360)
-  const controls = useRef<ViewerControls | null>(null)
+  const [assets, setAssets] = useState<Asset[]>([])
+  const [sel, setSel] = useState<string | null>(null)
+  const selected = assets.find((a) => a.id === sel) ?? null
 
-  // Drag the handle to resize the node-editor block (the 3D viewer takes the rest).
-  // Uses pointer capture so moves are routed to the handle even when the cursor
-  // passes over the Rerun canvas — otherwise the canvas swallows the events and
-  // the handle can only ever move one way.
-  const startResize = useCallback((e: React.PointerEvent) => {
-    e.preventDefault()
-    const handle = e.currentTarget as HTMLElement
-    handle.setPointerCapture(e.pointerId)
-    const onMove = (ev: PointerEvent) => {
-      const h = window.innerHeight - ev.clientY
-      setBottomH(Math.min(window.innerHeight - 160, Math.max(180, h)))
+  // placement + live verdict (M2)
+  const [pos, setPos] = useState<number[]>([0, 0, 0.4])
+  const [verdict, setVerdict] = useState<Verdict | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  // reset the loop when the selected asset changes
+  useEffect(() => { setPos([0, 0, 0.4]); setVerdict(null) }, [sel])
+
+  const onImport = useCallback(async (file: File) => {
+    const base = file.name.replace(/\.[^.]+$/, '')
+    const id = `${base}-${Math.random().toString(36).slice(2, 6)}`
+    setAssets((a) => [...a, { id, name: file.name, file, status: 'baking' }])
+    setSel(id)
+    try {
+      const pap = await bake(file)
+      setAssets((a) => a.map((x) => (x.id === id ? { ...x, pap, status: 'ok' } : x)))
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setAssets((a) => a.map((x) => (x.id === id ? { ...x, status: 'error', error: msg } : x)))
     }
-    const onUp = (ev: PointerEvent) => {
-      handle.releasePointerCapture(ev.pointerId)
-      handle.removeEventListener('pointermove', onMove)
-      handle.removeEventListener('pointerup', onUp)
-      document.body.style.userSelect = ''
-    }
-    document.body.style.userSelect = 'none'
-    handle.addEventListener('pointermove', onMove)
-    handle.addEventListener('pointerup', onUp)
   }, [])
 
-  // The knob (slider) drives the live graph; nudge the 3D viewer toward the
-  // nearest keyframe so the scene roughly follows (JS API can't set transforms).
-  const setBronzeX = useCallback((x: number) => {
-    setScene({ bronzeX: x })
-    controls.current?.seekFraction(Math.min(1, x / BRONZE_X_SAFE))
-  }, [])
+  const objId = selected?.pap?.asset_id ?? null
 
-  // A beat button pins both the knob and the viewer keyframe.
-  const goToBeat = useCallback((i: number) => {
-    const beat = BEATS[i]
-    setScene({ bronzeX: beat.x })
-    controls.current?.seekFraction(beat.frac)
-  }, [])
+  const onValidate = useCallback(async () => {
+    if (!objId) return
+    setBusy(true)
+    try { setVerdict(await validate(objId, pos)) } finally { setBusy(false) }
+  }, [objId, pos])
 
-  // Live verdict badge from the stability margin (the bet). Same rule the
-  // `stable` law uses — `stableStatus` is the single source.
-  const margin = stabilityMargin(scene.bronzeX)
-  const badge =
-    stableStatus(margin) === 'pass'
-      ? { text: 'ALL GREEN', color: STATUS_COLOR.pass }
-      : { text: 'STOPPED · STABILITY', color: STATUS_COLOR.fail }
-  const activeBeat = scene.bronzeX < (BEATS[0].x + BEATS[1].x) / 2 ? 0 : 1
+  const onRepair = useCallback(async () => {
+    if (!objId) return
+    setBusy(true)
+    try {
+      const tf = await repair(objId, pos)
+      const rounded = tf.pos.map((v) => Math.round(v * 1000) / 1000) // mm precision, no e-notation
+      setPos(rounded)
+      setVerdict(await validate(objId, rounded, tf.quat))
+    } finally { setBusy(false) }
+  }, [objId, pos])
+
+  const onCommit = useCallback(async () => {
+    if (!objId) return
+    setBusy(true)
+    try { await commit(objId, pos) } finally { setBusy(false) }
+  }, [objId, pos])
+
+  const inspector = selected?.status === 'ok' && objId
+    ? <Inspector pos={pos} setPos={setPos} verdict={verdict} busy={busy}
+        onValidate={onValidate} onRepair={onRepair} onCommit={onCommit} />
+    : undefined
 
   return (
-    <div className="app" style={{ gridTemplateRows: `44px 1fr ${bottomH}px` }}>
-      <header className="topbar">
-        <div className="brand">
-          PLUMB<span className="brand-dim"> · spatial conscience</span>
-        </div>
-        <div className="verdict" style={{ color: badge.color }}>
-          <span className="dot" style={{ background: badge.color }} />
-          {badge.text}
-          <span className="verdict-num">margin {margin >= 0 ? '+' : ''}{(margin * 100).toFixed(1)}cm</span>
-        </div>
-      </header>
+    <div className="app">
+      <IconDefs />
 
-      <div className="viewer-pane">
-        <RerunViewer rrd="/gallery.rrd" onReady={(c) => (controls.current = c)} />
+      <div className="menubar">
+        <Brand />
+        <div className="sep" />
+        <div className="mfile">
+          <div className="mbtn"><Icon name="new" />New</div>
+          <div className="mbtn"><Icon name="open" />Open</div>
+          <label className="mbtn key">
+            <Icon name="import" />Import mesh
+            <input type="file" accept=".obj,.glb,.stl" style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f) }} />
+          </label>
+        </div>
+        <div className="proj">
+          <span className="dot" /><span className="mono">untitled.wdf</span>
+          <span style={{ color: 'var(--ink4)' }}>·</span>{assets.length} assets
+        </div>
       </div>
 
-      <div className="bottom">
-        <div
-          className="resize-handle"
-          onPointerDown={startResize}
-          role="separator"
-          aria-orientation="horizontal"
-          title="Drag to resize the node editor"
-        />
-        <div className="scrubber">
-        <span className="scrubber-label">beat</span>
-        <div className="steps">
-          {BEATS.map((b, i) => (
-            <button
-              key={b.label}
-              className={`step ${i === activeBeat ? 'active' : ''}`}
-              style={{ '--c': i === 0 ? STATUS_COLOR.fail : STATUS_COLOR.pass } as React.CSSProperties}
-              onClick={() => goToBeat(i)}
-            >
-              {b.label}
-            </button>
-          ))}
-        </div>
-        <span className="scrubber-hint">…or drag the bronze_figure knob for the in-between</span>
+      <GateStack verdict={verdict} />
+
+      <div className="row">
+        <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
+        <Viewport file={selected?.file ?? null} name={selected?.name ?? ''}
+          pap={selected?.pap ?? null} pos={pos} verdict={verdict} />
+        <Properties pap={selected?.pap ?? null} footer={inspector} />
       </div>
 
-        <div className="graph-pane">
-          <ReactFlowProvider>
-            <Palette />
-            <ConstraintGraph scene={scene} setBronzeX={setBronzeX} />
-          </ReactFlowProvider>
+      <div className="nodeeditor">
+        <header>
+          <Icon name="reach" /><span className="t">Node editor</span><span className="who">Fara</span>
+        </header>
+        <div className="ne">
+          <ConstraintGraph attempt={attempts[0]} />
         </div>
       </div>
     </div>

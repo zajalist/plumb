@@ -111,6 +111,15 @@ def test_export_wdf_round_trips_through_the_language():
 # Pure consumer: the demo never reaches into cortex internals.
 # --------------------------------------------------------------------------- #
 def test_demo_does_not_import_cortex():
-    demo.run_demo(client=FakeCortex(), out=tmp_path(".rrd"))
-    assert not any(m == "cortex" or m.startswith("cortex.") for m in sys.modules), \
+    # Run the full demo in a FRESH interpreter and confirm cortex never enters sys.modules.
+    # Subprocess isolation keeps this honest when the cortex suite runs in the same session.
+    from tests.helpers import cortex_modules_after
+    setup = (
+        "import tempfile\n"
+        "from conscience import demo\n"
+        "from conscience.cortex_client import FakeCortex\n"
+        "demo.run_demo(client=FakeCortex(), "
+        "out=tempfile.NamedTemporaryFile(suffix='.rrd', delete=False).name)\n"
+    )
+    assert cortex_modules_after(setup) == [], \
         "demo must render from the contract only — never import cortex internals"
