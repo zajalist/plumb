@@ -85,7 +85,7 @@ export function Viewport({ name, pap, pos, verdict, status }: {
     : status === 'converting' ? 'converting via Unreal…'
     : status === 'queued' ? 'queued…'
     : status === 'error' ? 'bake failed'
-    : status === 'declared' ? 'declared asset — no baked geometry'
+    : status === 'declared' ? 'declared asset · no baked geometry'
     : pap ? 'no masks'
     : 'no asset selected'
 
@@ -200,7 +200,7 @@ export function Viewport({ name, pap, pos, verdict, status }: {
   return (
     <section className="pane viewport">
       <header>
-        <div className="t"><Icon name="aperture" /><span>Viewport — {name || '—'}</span></div>
+        <div className="t"><Icon name="aperture" /><span>Viewport{name ? ` · ${name}` : ''}</span></div>
         {hasParts && (
           <div className="vptoggle">
             <button className={view === 'masks' ? 'on' : ''} onClick={() => setView('masks')}>masks</button>

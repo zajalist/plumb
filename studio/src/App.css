@@ -42,10 +42,11 @@
 .react-flow__edge-path { stroke: var(--line2); stroke-width: 1.4; }
 .react-flow__edge.selected .react-flow__edge-path,
 .react-flow__edge:hover .react-flow__edge-path { stroke: var(--sage); }
-/* box-select + multi-select (teal, overriding React-Flow's default blue) */
+/* box-select rectangle: subtle teal wash, calm dashed edge */
 .react-flow__selection,
-.react-flow__nodesselection-rect { background: rgba(52, 192, 173, 0.08); border: 1px dashed var(--sage); }
-.react-flow__node.selected { outline: 1px solid var(--sage); outline-offset: 3px; border-radius: 8px; }
+.react-flow__nodesselection-rect { background: rgba(52, 192, 173, 0.05); border: 1px dashed rgba(52, 192, 173, 0.45); border-radius: 4px; }
+/* selected node: a crisp teal ring that hugs the card (no halo gap, no glow) */
+.react-flow__node.selected { box-shadow: 0 0 0 1.5px var(--sage); border-radius: 7px; }
 .react-flow__handle { width: 8px; height: 8px; border: 1px solid var(--bg); background: var(--ink3); }
 .react-flow__handle:hover { background: var(--sage); }
 .react-flow__controls { box-shadow: none; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }

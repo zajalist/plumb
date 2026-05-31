@@ -27,21 +27,21 @@ export function Properties({ pap, footer, onConfirm, busy, declared }: {
     return (
       <section className="pane props">
         <header>
-          <div className="t"><Icon name="com" /><span>Properties — declared</span></div>
+          <div className="t"><Icon name="com" /><span>Properties</span></div>
           <span className="mono" style={{ fontSize: 10, color: 'var(--ink4)' }}>.wdf</span>
         </header>
         <div className="body">
           <div className="psec">
             <div className="label" style={{ marginBottom: 4 }}>Identity</div>
-            <div className="prop"><span className="k">profile</span><span className="v">{declared.profile ?? '—'}</span></div>
+            <div className="prop"><span className="k">profile</span><span className="v">{declared.profile ?? '·'}</span></div>
             {declared.states.length > 0 && meta('states', declared.states.join(' · '))}
             {declared.tags.length > 0 && meta('tags', declared.tags.join(' · '))}
-            {declared.joint && meta('joint', `${declared.joint.axis} ${declared.joint.range_min}–${declared.joint.range_max}°`)}
+            {declared.joint && meta('joint', `${declared.joint.axis} ${declared.joint.range_min}-${declared.joint.range_max}°`)}
             {declared.swept_volume && meta('swept', declared.swept_volume)}
             {declared.load_cap && meta('load cap', declared.load_cap)}
           </div>
           <div className="psec" style={{ borderBottom: 'none' }}>
-            <div className="label">Masks <span style={{ color: 'var(--ink4)', textTransform: 'none', letterSpacing: 0 }}>— declared · {masks.length}</span></div>
+            <div className="label">Masks <span style={{ color: 'var(--ink4)', textTransform: 'none', letterSpacing: 0 }}>{masks.length}</span></div>
             <div className="masks">
               {masks.map(([part, mat], i) => (
                 <div className="mask" key={part}>
@@ -68,7 +68,7 @@ export function Properties({ pap, footer, onConfirm, busy, declared }: {
   if (!pap) {
     return (
       <section className="pane props">
-        <header><div className="t"><Icon name="com" /><span>Properties — PAP</span></div></header>
+        <header><div className="t"><Icon name="com" /><span>Properties</span></div></header>
         <div className="body" style={{ padding: 16, color: 'var(--ink3)', fontSize: 13 }}>
           Import or select an asset to bake.
         </div>
@@ -89,7 +89,7 @@ export function Properties({ pap, footer, onConfirm, busy, declared }: {
   return (
     <section className="pane props">
       <header>
-        <div className="t"><Icon name="com" /><span>Properties — PAP</span></div>
+        <div className="t"><Icon name="com" /><span>Properties</span></div>
         <span className="mono" style={{ fontSize: 10, color: 'var(--ink4)' }}>{allConfirmed ? 'locked' : 'baked'}</span>
       </header>
       <div className="body">
@@ -123,7 +123,7 @@ export function Properties({ pap, footer, onConfirm, busy, declared }: {
         <div className="psec" style={{ borderBottom: 'none' }}>
           <div className="label">
             Parts <span style={{ color: 'var(--ink4)', textTransform: 'none', letterSpacing: 0 }}>
-              {allConfirmed ? '— masks · locked' : `— ${parts.length || 'no'} masks · AI-guessed`}
+              {allConfirmed ? 'locked' : `${parts.length || 'no'} masks`}
             </span>
           </div>
 

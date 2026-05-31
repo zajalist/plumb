@@ -194,7 +194,7 @@ export default function Inspector({
           <div className="inspector-row">
             <span className="inspector-key">status</span>
             <span style={{ color: status ? STATUS_COLOR[status] : undefined, fontWeight: 700 }}>
-              {status ? status.toUpperCase() : '—'}
+              {status ? status.toUpperCase() : 'IDLE'}
             </span>
           </div>
           {result?.headline && (
