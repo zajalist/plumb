@@ -1,5 +1,5 @@
 import type { Node } from '@xyflow/react'
-import type { NodeResult, PlumbData, PortType } from '../lib/engine'
+import { BRONZE_X_MIN, BRONZE_X_MAX, type NodeResult, type PlumbData, type PortType } from '../lib/engine'
 import { STATUS_COLOR, PORT_COLOR, KIND_LABEL } from '../lib/theme'
 
 function PortChip({ t }: { t: PortType }) {
@@ -18,10 +18,16 @@ export default function Inspector({
   node,
   result,
   incoming,
+  bronzeX,
+  setBronzeX,
+  onDelete,
 }: {
   node: Node<PlumbData> | null
   result?: NodeResult
   incoming: { label: string; type?: PortType }[]
+  bronzeX: number
+  setBronzeX: (x: number) => void
+  onDelete: (id: string) => void
 }) {
   if (!node) {
     return (
@@ -101,6 +107,28 @@ export default function Inspector({
           {result?.detail && <div className="inspector-detail">{result.detail}</div>}
         </div>
       )}
+
+      {d.control === 'bronzeX' && (
+        <div className="inspector-section">
+          <div className="inspector-h">Control · x-offset</div>
+          <input
+            className="knob"
+            type="range"
+            min={BRONZE_X_MIN}
+            max={BRONZE_X_MAX}
+            step={0.002}
+            value={bronzeX}
+            onChange={(e) => setBronzeX(parseFloat(e.target.value))}
+          />
+          <div className="knob-val">x +{(bronzeX * 100).toFixed(1)}cm</div>
+        </div>
+      )}
+
+      <div className="inspector-section">
+        <button className="inspector-delete" onClick={() => onDelete(node.id)}>
+          Delete node
+        </button>
+      </div>
 
       <div className="inspector-foot">id · {node.id}</div>
     </aside>

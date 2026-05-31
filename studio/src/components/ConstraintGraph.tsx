@@ -18,8 +18,6 @@ import {
 import '@xyflow/react/dist/style.css'
 import {
   evaluateGraph,
-  BRONZE_X_MIN,
-  BRONZE_X_MAX,
   type NodeResult,
   type PlumbData,
   type SceneState,
@@ -29,10 +27,8 @@ import { STATUS_COLOR, STATUS_LABEL, PORT_COLOR } from '../lib/theme'
 import { canConnect, connect, type GetNodeData } from '../lib/connection'
 import Inspector from './Inspector'
 
-// ── contexts so node renderers read live results + drive the scene knob ───────
+// ── context so node renderers read live results ───────────────────────────────
 const ResultsContext = createContext<Map<string, NodeResult>>(new Map())
-type SceneCtx = { bronzeX: number; setBronzeX: (x: number) => void }
-const SceneContext = createContext<SceneCtx>({ bronzeX: 0, setBronzeX: () => {} })
 
 function Ports({ data }: { data: PlumbData }) {
   return (
@@ -57,26 +53,10 @@ function Ports({ data }: { data: PlumbData }) {
 
 // ── node renderers ────────────────────────────────────────────────────────────
 function AssetNode({ data }: NodeProps<Node<PlumbData>>) {
-  const { bronzeX, setBronzeX } = useContext(SceneContext)
-  const isKnob = data.control === 'bronzeX'
   return (
     <div className="node node-asset">
       <div className="node-title">{data.label}</div>
       {data.sub && <div className="node-sub">{data.sub}</div>}
-      {isKnob && (
-        <div className="knob">
-          <input
-            className="nodrag"
-            type="range"
-            min={BRONZE_X_MIN}
-            max={BRONZE_X_MAX}
-            step={0.002}
-            value={bronzeX}
-            onChange={(e) => setBronzeX(parseFloat(e.target.value))}
-          />
-          <span className="knob-val">x +{(bronzeX * 100).toFixed(1)}cm</span>
-        </div>
-      )}
       <Ports data={data} />
     </div>
   )
@@ -235,38 +215,48 @@ export default function ConstraintGraph({
     [screenToFlowPosition, setNodes],
   )
 
+  const onDelete = useCallback(
+    (id: string) => {
+      setNodes((nds) => nds.filter((n) => n.id !== id))
+      setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id))
+      setSelectedId(null)
+    },
+    [setNodes, setEdges],
+  )
+
   return (
-    <SceneContext.Provider value={{ bronzeX: scene.bronzeX, setBronzeX }}>
-      <ResultsContext.Provider value={results}>
-        <div className="graph-main">
-          <div className="canvas" onDrop={onDrop} onDragOver={onDragOver}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onSelectionChange={onSelectionChange}
-              isValidConnection={isValidConnection}
-              connectionMode={ConnectionMode.Loose}
-              connectionRadius={40}
-              nodeTypes={nodeTypes}
-              deleteKeyCode={['Backspace', 'Delete']}
-              fitView
-              fitViewOptions={{ padding: 0.12 }}
-              proOptions={{ hideAttribution: true }}
-            >
-              <Background color="#2a2f36" gap={24} />
-              <Controls showInteractive={false} />
-            </ReactFlow>
-          </div>
-          <Inspector
-            node={selectedNode}
-            result={selectedId ? results.get(selectedId) : undefined}
-            incoming={incoming}
-          />
+    <ResultsContext.Provider value={results}>
+      <div className="graph-main">
+        <div className="canvas" onDrop={onDrop} onDragOver={onDragOver}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onSelectionChange={onSelectionChange}
+            isValidConnection={isValidConnection}
+            connectionMode={ConnectionMode.Strict}
+            connectionRadius={50}
+            nodeTypes={nodeTypes}
+            deleteKeyCode={['Backspace', 'Delete']}
+            fitView
+            fitViewOptions={{ padding: 0.12 }}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background color="#2a2f36" gap={24} />
+            <Controls showInteractive={false} />
+          </ReactFlow>
         </div>
-      </ResultsContext.Provider>
-    </SceneContext.Provider>
+        <Inspector
+          node={selectedNode}
+          result={selectedId ? results.get(selectedId) : undefined}
+          incoming={incoming}
+          bronzeX={scene.bronzeX}
+          setBronzeX={setBronzeX}
+          onDelete={onDelete}
+        />
+      </div>
+    </ResultsContext.Provider>
   )
 }

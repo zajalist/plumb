@@ -86,9 +86,10 @@ the topology actually drives computation:
   registry is injected. The terminal Verdict is green only when every wired hard law
   passes.
 - **`src/lib/connection.ts` — connection rules.** Pure functions: `canConnect` (typed-port
-  validity, either orientation), `orientConnection` (ensures edges always flow provides →
-  accepts), `connect` (applies the drop, enforces single-input on laws/measures, allows
-  many on Verdict).
+  validity — output type accepted by the entry) and `connect` (applies a dropped wire under
+  strict source→target). Enforces the **one-wire-per-entry invariant**: each input port holds
+  at most one wire (a new wire replaces the old); the Verdict node is the sole exception and
+  aggregates every law wired into it.
 
 `stableStatus()` is the single "is it stable?" rule, shared by the `stable` law and the
 App badge. Visual tokens (`STATUS_COLOR`, `PORT_COLOR`, labels) live once in

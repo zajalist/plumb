@@ -184,9 +184,8 @@ export function seedGraph(): { nodes: Node[]; edges: Edge[] } {
 
   const nodes: Node[] = [
     n('bronze_figure', COL.asset, 40),
-    n('pedestal', COL.asset, 170),
-    n('oak_door', COL.asset, 270),
-    n('walkway', COL.asset, 370),
+    n('oak_door', COL.asset, 160),
+    n('walkway', COL.asset, 280),
 
     n('comOverFootprint', COL.measure, 30),
     n('clearance', COL.measure, 120),
@@ -208,7 +207,6 @@ export function seedGraph(): { nodes: Node[]; edges: Edge[] } {
     e('bronze_figure', 'comOverFootprint'),
     e('bronze_figure', 'clearance'),
     e('bronze_figure', 'angleToFront'),
-    e('pedestal', 'clearance'),
     e('oak_door', 'sweptClear'),
     e('walkway', 'pathWidth'),
 

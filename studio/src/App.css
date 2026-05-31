@@ -258,6 +258,24 @@
   border-radius: 999px;
   margin-left: 4px;
 }
+.inspector .knob {
+  width: 100%;
+  accent-color: #c9a227;
+}
+.inspector-delete {
+  width: 100%;
+  background: #2a1416;
+  color: #ff8a8a;
+  border: 1px solid #5a2222;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.inspector-delete:hover {
+  background: #3a1a1d;
+}
 
 /* zoom controls — match the dark theme (default is dark-on-white) */
 .react-flow__controls {
