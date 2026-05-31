@@ -116,6 +116,27 @@ def test_quat_mirror_matches_matrix_conjugation():
         np.testing.assert_allclose(_quat_to_R(mirrored), expected_R, atol=1e-10)
 
 
+def test_quat_path_commutes_with_point_mirror_on_a_rotated_point():
+    # Directional pin: the quaternion path must agree with the POINT path on a
+    # concrete rotated point. Rotating a local point m, then mirroring it through
+    # the negate-X point mirror P, must equal mirroring m first and then rotating
+    # by the MIRRORED quaternion:
+    #
+    #     P @ (R(q) @ m)  ==  R(canon_to_ue5_quat(q)) @ (P @ m).
+    #
+    # The existing round-trip / conjugation tests use the same M on both sides and
+    # cannot catch a wrong mirror axis; tying the rotated-point image through the
+    # independent point mirror P does. (P matches adapter's negate-X point map.)
+    rng = np.random.default_rng(2024)
+    P = np.diag([-1.0, 1.0, 1.0])
+    for _ in range(50):
+        q = _rand_unit_quat(rng)
+        m = rng.standard_normal(3)
+        lhs = P @ (_quat_to_R(q) @ m)
+        rhs = _quat_to_R(adapter.canon_to_ue5_quat(q)) @ (P @ m)
+        np.testing.assert_allclose(lhs, rhs, atol=1e-10)
+
+
 # --------------------------------------------------------------------------- #
 # Winding / normals: a face normal points OUTWARD after a full round-trip.
 # --------------------------------------------------------------------------- #

@@ -12,16 +12,23 @@ The output is exactly what `parse.loads` reads back, so the headline guarantee
 
 from __future__ import annotations
 
+import json
+
 from .model import Asset, Law, Placement, Scene, WdfDocument
 
 _IND = "  "
 
 
 def _fmt_num(x: float) -> str:
-    """Render a range bound without a trailing `.0` when it is integral."""
+    """Render a number in exponent-free fixed-point so the grammar can read it back.
+
+    `repr(1e-5)` is `'1e-05'`, which the RANGE/QUANTITY terminals reject. `format(x,
+    'f')` always emits plain decimal; we strip the redundant trailing zeros/point so
+    integral bounds stay clean (`20`, not `20.000000`).
+    """
     if x == int(x):
         return str(int(x))
-    return repr(x)
+    return format(x, "f").rstrip("0").rstrip(".")
 
 
 def _asset_block(asset: Asset) -> list[str]:
@@ -61,7 +68,10 @@ def _law_line(law: Law) -> str:
 
 
 def _scene_block(scene: Scene) -> list[str]:
-    lines = [f'scene "{scene.name}" {{']
+    # json.dumps produces a properly escaped double-quoted string literal (escaping
+    # ", \\ and control chars / newlines), which `parse` decodes symmetrically with
+    # json.loads. A raw f-string here would corrupt any name holding those chars.
+    lines = [f"scene {json.dumps(scene.name)} {{"]
     for f in scene.fields:
         lines.append(f"{_IND}field {f.key}: {f.value}")
     if scene.fields and (scene.placements or scene.laws):
