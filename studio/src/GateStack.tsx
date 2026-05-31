@@ -87,25 +87,31 @@ export function GateStack({ verdict, pos, setPos, rot, setRot, busy, onValidate,
           <div className="gact-sep" />
 
           <div className="gact-r">
-            {setFreeStanding && (
-              <div className="gsupport" title="Free-standing: the base co-moves with the body, so lateral placement doesn't topple it. Pedestal: the base is anchored at the origin (the gallery model).">
-                <span className="gsupport-lbl">Support</span>
-                <button
-                  className={`gsupport-opt ${freeStanding ? 'on' : ''}`}
-                  onClick={() => setFreeStanding(true)}
-                >Free-standing</button>
-                <button
-                  className={`gsupport-opt ${!freeStanding ? 'on' : ''}`}
-                  onClick={() => setFreeStanding(false)}
-                >Pedestal</button>
+            <div className="gact-top">
+              <div className={`gact-read ${failed ? 'fail' : ready ? 'pass' : ''}`}>
+                <span className="gact-dot" />
+                <span>
+                  {verdict
+                    ? stab && stab.value_m !== null
+                      ? `${stab.ok ? 'Stable' : 'Unstable'} · ${cm(stab.value_m)}`
+                      : ready ? 'All gates pass' : `Stopped at ${verdict.stopped_at ?? 'gate'}`
+                    : 'Not validated'}
+                </span>
               </div>
-            )}
-            <div className={`gact-read ${failed ? 'fail' : ready ? 'pass' : ''}`}>
-              {verdict
-                ? stab && stab.value_m !== null
-                  ? `${stab.ok ? 'Stable' : 'Unstable'} · ${cm(stab.value_m)}`
-                  : ready ? 'All gates pass' : `Stopped at ${verdict.stopped_at ?? 'gate'}`
-                : 'Not validated'}
+              {setFreeStanding && (
+                <div className="gseg" role="group" aria-label="Stability support model" title="Free-standing: the base co-moves with the body, so lateral placement doesn't topple it. Pedestal: the base is anchored at the origin (the gallery model).">
+                  <button
+                    className={`gseg-opt ${freeStanding ? 'on' : ''}`}
+                    aria-pressed={freeStanding}
+                    onClick={() => setFreeStanding(true)}
+                  >Free-standing</button>
+                  <button
+                    className={`gseg-opt ${!freeStanding ? 'on' : ''}`}
+                    aria-pressed={!freeStanding}
+                    onClick={() => setFreeStanding(false)}
+                  >Pedestal</button>
+                </div>
+              )}
             </div>
             <div className="gact-btns">
               <button className="tbtn primary" disabled={busy} onClick={onValidate}>Validate</button>
