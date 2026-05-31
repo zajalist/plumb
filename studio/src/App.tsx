@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { IconDefs, Icon } from './Icons'
-import { Brand } from './Brand'
+import { Menubar } from './Menubar'
 import { AssetsPanel, type Asset } from './AssetsPanel'
 import { Viewport } from './Viewport'
 import { Properties } from './Properties'
@@ -210,24 +210,13 @@ export default function App() {
     <div className="app">
       <IconDefs />
 
-      <div className="menubar">
-        <Brand />
-        <div className="sep" />
-        <div className="mfile">
-          <div className="mbtn"><Icon name="new" />New</div>
-          <div className="mbtn"><Icon name="open" />Open</div>
-          <label className="mbtn key">
-            <Icon name="import" />Import mesh
-            <input type="file" multiple accept=".obj,.glb,.gltf,.stl,.uasset,.bin,.png,.jpg,.jpeg,.webp,.ktx2"
-              style={{ display: 'none' }}
-              onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) onAddFiles(fs); e.currentTarget.value = '' }} />
-          </label>
-        </div>
-        <div className="proj">
-          <span className="dot" /><span className="mono">{wdf?.scene ? `${wdf.scene.name}.wdf` : 'untitled.wdf'}</span>
-          <span style={{ color: 'var(--ink4)' }}>·</span>{assets.length} assets
-        </div>
-      </div>
+      <Menubar
+        projectName={wdf?.scene ? `${wdf.scene.name}.wdf` : 'untitled.wdf'}
+        assetCount={assets.length}
+        onNew={startNew}
+        onOpenWdf={onOpenFile}
+        onImport={onAddFiles}
+      />
 
       <GateStack verdict={verdict} />
       {wdf?.scene && <LawsBand scene={wdf.scene} />}

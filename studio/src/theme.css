@@ -5,7 +5,7 @@
    no characterful mono for readouts). Mono (Cascadia) reserved for true IDs only.
    Rules: gate colors (teal pass / terracotta fail / amber soft) are the only
    saturated colors; no glows, no LED dots, no editorial "— guessed" annotations. */
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@500;600;700&display=swap');
 
 :root{
   --bg:#0E1012; --surface:#171A1D; --surface2:#1E2226; --inset:#0B0E10;
@@ -59,6 +59,31 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .mbtn:hover svg{color:var(--sage)}
 .proj{margin-left:auto;display:flex;align-items:center;gap:9px;color:var(--ink3);font-size:12px}
 .proj .dot{display:none}
+/* text wordmark (replaces the logo image) */
+.wordmark{font-family:'Space Grotesk',var(--sans);font-weight:700;font-size:21px;letter-spacing:-.01em;color:var(--ink);line-height:1;user-select:none}
+/* working dropdown menus */
+.menus{display:flex;gap:1px}
+.menu{position:relative}
+.menu-btn{appearance:none;background:none;border:none;height:30px;padding:0 11px;border-radius:5px;color:var(--ink2);font-family:var(--sans);font-size:12.5px;cursor:pointer}
+.menu-btn:hover,.menu-btn.on{background:var(--surface2);color:var(--ink)}
+.menu-pop{position:absolute;top:34px;left:0;z-index:60;min-width:200px;padding:5px;border-radius:7px;
+  background:linear-gradient(180deg,#1d2226,#171b1e);border:1px solid var(--line2);
+  box-shadow:inset 0 1px 0 var(--glass-hi),0 16px 36px rgba(0,0,0,.55)}
+.menu-item{appearance:none;width:100%;display:flex;align-items:center;justify-content:space-between;gap:24px;
+  height:30px;padding:0 10px;border:none;border-radius:5px;background:none;color:var(--ink);
+  font-family:var(--sans);font-size:12.5px;text-align:left;cursor:pointer}
+.menu-item:hover:not(:disabled){background:var(--sage-deep);color:#fff}
+.menu-item:disabled{color:var(--ink4);cursor:default}
+.menu-item .accel{font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink4)}
+.menu-item:hover:not(:disabled) .accel{color:rgba(255,255,255,.7)}
+.menu-sep{height:1px;margin:5px 7px;background:var(--line2)}
+/* modal (About) */
+.modal-scrim{position:fixed;inset:0;z-index:80;background:rgba(8,10,12,.6);display:flex;align-items:center;justify-content:center}
+.modal{width:340px;max-width:88vw;padding:30px 28px;border-radius:12px;text-align:center;
+  background:linear-gradient(180deg,#1b2024,#13171a);border:1px solid var(--line2);
+  box-shadow:inset 0 1px 0 var(--glass-hi),0 24px 60px rgba(0,0,0,.6)}
+.modal p{font-size:13px}
+.modal-close{justify-content:center;margin-top:16px;border:1px solid var(--line2)}
 
 /* gate stack — UE4-style toolbar: live 3D icon over label, no boxes */
 .gates{display:flex;align-items:stretch;height:74px;
