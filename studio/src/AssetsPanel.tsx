@@ -1,13 +1,14 @@
 import { Icon } from './Icons'
-import type { PAP } from './api'
+import type { PAP, WdfAsset } from './api'
 
 export type Asset = {
   id: string
   name: string
-  file: File
+  file?: File            // absent for assets declared by an opened .wdf
   pap?: PAP
-  status: 'baking' | 'ok' | 'error'
+  status: 'queued' | 'converting' | 'baking' | 'ok' | 'error' | 'declared'
   error?: string
+  wdf?: WdfAsset         // present when this asset came from a .wdf vocabulary
 }
 
 export function AssetsPanel({ assets, selected, onSelect, onImport }: {
@@ -32,6 +33,8 @@ export function AssetsPanel({ assets, selected, onSelect, onImport }: {
                 <div className="sub">
                   {a.status === 'baking' ? 'baking…'
                     : a.status === 'error' ? <span style={{ color: 'var(--fail)' }}>bake failed</span>
+                    : a.status === 'declared' && a.wdf
+                      ? `${a.wdf.profile ?? 'asset'} · ${Object.keys(a.wdf.material).length} masks`
                     : a.pap ? `${a.pap.semantics.cls} · ${a.pap.physical.mass_kg.toFixed(1)}kg`
                     : ''}
                 </div>

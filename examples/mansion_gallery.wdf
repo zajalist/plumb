@@ -1,0 +1,61 @@
+vocabulary {
+  asset candelabra {
+    profile: rigid_prop
+    material: { base: stone, sconces: bronze, stem: bronze }
+    states: [ upright, fell ]
+    affordances: [ hold_candle ]
+    tags: [ fragile ]
+  }
+  asset chair {
+    profile: rigid_prop
+    material: { frame: wood, seat: wood }
+    states: [ upright, fell ]
+    affordances: [ sit ]
+  }
+  asset chandelier {
+    profile: suspended
+    material: { drops: glass, frame: bronze }
+    states: [ hung ]
+    affordances: [ illuminate ]
+    tags: [ fragile ]
+  }
+  asset globe {
+    profile: rigid_prop
+    material: { meridian: bronze, sphere: glass, stand: wood }
+    states: [ upright ]
+    affordances: [ spin ]
+  }
+  asset long_table {
+    profile: rigid_prop
+    material: { iron_braces: bronze, legs: wood, top: wood }
+    states: [ upright ]
+    affordances: [ support_surface ]
+    load_cap: 40kg
+  }
+  asset oak_door {
+    profile: articulated
+    material: { hinges: bronze, panel: wood }
+    joint: { axis: hinge, range: 0..95deg }
+    states: [ closed, ajar, open ]
+    swept_volume: keep_clear
+  }
+}
+
+scene "the_gallery" {
+  field season: autumn
+  field time: dusk
+  field mood: haunted
+
+  place candelabra on long_table state upright
+  place globe on map_desk state upright
+  place chair at long_table state upright
+  place oak_door at north_wall state closed
+  place chandelier at ceiling state hung
+
+  law stable: com_over_base(margin >= 2cm) hard
+  law facing: candelabra.front -> entrance(<= 8deg) soft
+  law no_fragile_load: byTag(fragile).load <= cap hard
+  law door_clear: keep_clear(oak_door.swept) hard
+  law walkway: path_clear(r = 0.45m) hard
+  law lit_plaque: illuminate(chandelier) -> plaque(min_lux >= 50) soft
+}

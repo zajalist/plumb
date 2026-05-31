@@ -7,24 +7,49 @@ import { Properties } from './Properties'
 import { Inspector } from './Inspector'
 import { GateStack } from './GateStack'
 import { Splash } from './Splash'
+import { Stage, type BakeSettings } from './Stage'
+import { LawsBand } from './LawsBand'
 import { getRecent, addRecent, type RecentEntry } from './recent'
 import { ReactFlowProvider } from '@xyflow/react'
 import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
 import Palette from './components/Palette'
 import { INITIAL_SCENE, type SceneState } from './lib/engine'
-import { bake, validate, repair, commit, type Verdict } from './api'
+import { bake, validate, repair, commit, openWdf, health, type Verdict, type WdfDoc } from './api'
 import './App.css'
 
 export default function App() {
-  // launch flow: Splash → IDE (WP-1)
-  const [started, setStarted] = useState(false)
+  // launch flow: Splash → Stage (drop + bake) → Editor
+  const [screen, setScreen] = useState<'splash' | 'stage' | 'editor'>('splash')
   const [recent, setRecent] = useState<RecentEntry[]>(() => getRecent())
-  const startNew = useCallback(() => setStarted(true), [])
-  const openProject = useCallback((name: string) => { setRecent(addRecent(name)); setStarted(true) }, [])
+  const [settings, setSettings] = useState<BakeSettings>({ profile: 'rigid_prop', simplify: false })
+  const [ueAvailable, setUeAvailable] = useState(false)
+  const startNew = useCallback(() => setScreen('stage'), [])
+  const openProject = useCallback((name: string) => { setRecent(addRecent(name)); setScreen('editor') }, [])
+
+  useEffect(() => { health().then((h) => setUeAvailable(!!h.ue?.available)).catch(() => {}) }, [])
 
   const [assets, setAssets] = useState<Asset[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const selected = assets.find((a) => a.id === sel) ?? null
+
+  // opened .wdf scene (declared masks + laws), if any
+  const [wdf, setWdf] = useState<WdfDoc | null>(null)
+  const onOpenFile = useCallback(async (file: File) => {
+    if (file.name.toLowerCase().endsWith('.wdf')) {
+      try {
+        const doc = await openWdf(file)
+        setWdf(doc)
+        const declared = doc.vocabulary.assets.map((a, i): Asset => ({
+          id: `${a.name}-${i}`, name: a.name, status: 'declared', wdf: a,
+        }))
+        setAssets(declared)
+        setSel(declared[0]?.id ?? null)
+      } catch (e) {
+        console.error('open .wdf failed', e)
+      }
+    }
+    openProject(file.name)
+  }, [openProject])
 
   // placement + live verdict (M2)
   const [pos, setPos] = useState<number[]>([0, 0, 0.4])
@@ -58,19 +83,33 @@ export default function App() {
   // reset the loop when the selected asset changes
   useEffect(() => { setPos([0, 0, 0.4]); setVerdict(null) }, [sel])
 
-  const onImport = useCallback(async (file: File) => {
-    const base = file.name.replace(/\.[^.]+$/, '')
-    const id = `${base}-${Math.random().toString(36).slice(2, 6)}`
-    setAssets((a) => [...a, { id, name: file.name, file, status: 'baking' }])
-    setSel(id)
+  // Bake one queued file through the real backend, walking its status (converting
+  // for .uasset → baking → ok/error) so the stage queue shows live progress.
+  const bakeFile = useCallback(async (file: File, id: string) => {
+    const isU = file.name.toLowerCase().endsWith('.uasset')
+    setAssets((a) => a.map((x) => (x.id === id ? { ...x, status: isU ? 'converting' : 'baking' } : x)))
     try {
-      const pap = await bake(file)
+      const pap = await bake(file, { profile: settings.profile, decimate: settings.simplify ? 6000 : undefined })
       setAssets((a) => a.map((x) => (x.id === id ? { ...x, pap, status: 'ok' } : x)))
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setAssets((a) => a.map((x) => (x.id === id ? { ...x, status: 'error', error: msg } : x)))
     }
-  }, [])
+  }, [settings])
+
+  // Add dropped/selected files to the queue and bake them sequentially (kind to
+  // CPU + the single Unreal worker).
+  const onAddFiles = useCallback(async (files: File[]) => {
+    const added = files.map((f): Asset => ({
+      id: `${f.name.replace(/\.[^.]+$/, '')}-${Math.random().toString(36).slice(2, 6)}`,
+      name: f.name, file: f, status: 'queued',
+    }))
+    setAssets((a) => [...a, ...added])
+    setSel((s) => s ?? added[0]?.id ?? null)
+    for (const x of added) await bakeFile(x.file!, x.id)
+  }, [bakeFile])
+
+  const onImport = useCallback((file: File) => { void onAddFiles([file]) }, [onAddFiles])
 
   const objId = selected?.pap?.asset_id ?? null
 
@@ -103,22 +142,32 @@ export default function App() {
     if (!selected?.file) return
     setBusy(true)
     try {
-      const pap = await bake(selected.file, materials)
+      const pap = await bake(selected.file, { materials, profile: settings.profile })
       setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
     } finally { setBusy(false) }
-  }, [selected])
+  }, [selected, settings])
 
   const inspector = selected?.status === 'ok' && objId
     ? <Inspector pos={pos} setPos={setPos} verdict={verdict} busy={busy}
         onValidate={onValidate} onRepair={onRepair} onCommit={onCommit} />
     : undefined
 
-  if (!started) {
+  if (screen === 'splash') {
     return (
       <>
         <IconDefs />
         <Splash recent={recent} onNew={startNew}
-          onOpen={(f) => openProject(f.name)} onOpenRecent={(e) => openProject(e.name)} />
+          onOpen={onOpenFile} onOpenRecent={(e) => openProject(e.name)} />
+      </>
+    )
+  }
+
+  if (screen === 'stage') {
+    return (
+      <>
+        <IconDefs />
+        <Stage assets={assets} settings={settings} setSettings={setSettings}
+          onAddFiles={onAddFiles} onEnter={() => setScreen('editor')} ueAvailable={ueAvailable} />
       </>
     )
   }
@@ -140,19 +189,20 @@ export default function App() {
           </label>
         </div>
         <div className="proj">
-          <span className="dot" /><span className="mono">untitled.wdf</span>
+          <span className="dot" /><span className="mono">{wdf?.scene ? `${wdf.scene.name}.wdf` : 'untitled.wdf'}</span>
           <span style={{ color: 'var(--ink4)' }}>·</span>{assets.length} assets
         </div>
       </div>
 
       <GateStack verdict={verdict} />
+      {wdf?.scene && <LawsBand scene={wdf.scene} />}
 
       <div className="row">
         <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
         <Viewport file={selected?.file ?? null} name={selected?.name ?? ''}
           pap={selected?.pap ?? null} pos={pos} verdict={verdict} />
         <Properties pap={selected?.pap ?? null} footer={inspector}
-          onConfirm={onConfirmMaterials} busy={busy} />
+          onConfirm={onConfirmMaterials} busy={busy} declared={selected?.wdf} />
       </div>
 
       <div

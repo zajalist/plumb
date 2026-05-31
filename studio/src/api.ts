@@ -20,17 +20,21 @@ export type PAP = {
   rest_states: string[]
   parts?: Part[]
 }
-export type Health = { ok: boolean; cortex: boolean }
+export type Health = { ok: boolean; cortex: boolean; ue?: { available: boolean; cmd: boolean; project: boolean } }
 
 export async function health(): Promise<Health> {
   const r = await fetch(`${BASE}/health`)
   return r.json()
 }
 
-export async function bake(file: File, materials?: Record<string, string>): Promise<PAP> {
+export type BakeOpts = { materials?: Record<string, string>; profile?: string; decimate?: number }
+
+export async function bake(file: File, opts: BakeOpts = {}): Promise<PAP> {
   const fd = new FormData()
   fd.append('mesh', file)
-  if (materials) fd.append('materials', JSON.stringify(materials))
+  if (opts.materials) fd.append('materials', JSON.stringify(opts.materials))
+  if (opts.profile) fd.append('profile', opts.profile)
+  if (opts.decimate) fd.append('decimate', String(opts.decimate))
   const r = await fetch(`${BASE}/bake`, { method: 'POST', body: fd })
   if (!r.ok) {
     const detail = await r.json().catch(() => ({}))
@@ -62,6 +66,27 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 const DEFAULT_QUAT = [0, 0, 0, 1]
+// --- .wdf scene (open a world document) ---
+export type WdfJoint = { axis: string; range_min: number; range_max: number }
+export type WdfAsset = {
+  name: string; profile: string | null; material: Record<string, string>
+  states: string[]; affordances: string[]; tags: string[]
+  joint: WdfJoint | null; swept_volume: string | null; load_cap: string | null
+}
+export type WdfLaw = { name: string; expr: string; hard: boolean }
+export type WdfPlacement = { asset: string; target: string; preposition: string; state: string | null }
+export type WdfField = { key: string; value: string }
+export type WdfScene = { name: string; fields: WdfField[]; placements: WdfPlacement[]; laws: WdfLaw[] }
+export type WdfDoc = { vocabulary: { assets: WdfAsset[] }; scene: WdfScene | null }
+
+export async function openWdf(file: File): Promise<WdfDoc> {
+  const fd = new FormData()
+  fd.append('doc', file)
+  const r = await fetch(`${BASE}/open_wdf`, { method: 'POST', body: fd })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? 'open .wdf failed')
+  return r.json()
+}
+
 export const validate = (object: string, pos: number[], quat = DEFAULT_QUAT) =>
   post<Verdict>('/validate', { object, pos, quat })
 export const repair = (object: string, pos: number[], quat = DEFAULT_QUAT) =>

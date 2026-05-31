@@ -1,21 +1,69 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Icon } from './Icons'
-import type { PAP } from './api'
+import type { PAP, WdfAsset } from './api'
 
 const SWATCH: Record<string, string> = {
   bronze: '#7b5a2a', stone: '#6b6a63', glass: '#5b6b6b', wood: '#6e5a36', default: '#5a5750',
 }
+const MASK_PALETTE = ['#8E9A60', '#C2A24E', '#7E8A9A', '#C16A4A', '#6E8B7A', '#A0879A', '#B58A5A', '#7C8AA0']
 const MATERIALS = ['default', 'bronze', 'stone', 'glass', 'wood']
 
-export function Properties({ pap, footer, onConfirm, busy }: {
+export function Properties({ pap, footer, onConfirm, busy, declared }: {
   pap: PAP | null
   footer?: ReactNode
   onConfirm?: (materials: Record<string, string>) => void
   busy?: boolean
+  declared?: WdfAsset       // an asset declared by an opened .wdf (no bake yet)
 }) {
   // per-part material overrides (idx -> material), reset when the asset changes
   const [over, setOver] = useState<Record<number, string>>({})
   useEffect(() => { setOver({}) }, [pap?.asset_id])
+
+  if (!pap && declared) {
+    const masks = Object.entries(declared.material)
+    const meta = (k: string, v: string) => (
+      <div className="prop"><span className="k">{k}</span><span className="v muted">{v}</span></div>
+    )
+    return (
+      <section className="pane props">
+        <header>
+          <div className="t"><Icon name="com" /><span>Properties — declared</span></div>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--ink4)' }}>.wdf</span>
+        </header>
+        <div className="body">
+          <div className="psec">
+            <div className="label" style={{ marginBottom: 4 }}>Identity</div>
+            <div className="prop"><span className="k">profile</span><span className="v">{declared.profile ?? '—'}</span></div>
+            {declared.states.length > 0 && meta('states', declared.states.join(' · '))}
+            {declared.tags.length > 0 && meta('tags', declared.tags.join(' · '))}
+            {declared.joint && meta('joint', `${declared.joint.axis} ${declared.joint.range_min}–${declared.joint.range_max}°`)}
+            {declared.swept_volume && meta('swept', declared.swept_volume)}
+            {declared.load_cap && meta('load cap', declared.load_cap)}
+          </div>
+          <div className="psec" style={{ borderBottom: 'none' }}>
+            <div className="label">Masks <span style={{ color: 'var(--ink4)', textTransform: 'none', letterSpacing: 0 }}>— declared · {masks.length}</span></div>
+            <div className="masks">
+              {masks.map(([part, mat], i) => (
+                <div className="mask" key={part}>
+                  <span className="mask-c" style={{ background: MASK_PALETTE[i % MASK_PALETTE.length] }} />
+                  <div className="mask-main">
+                    <div className="mask-top">
+                      <span className="mask-id mono">{part}</span>
+                      <span className="mask-mat"><span className="swatch" style={{ background: SWATCH[mat] ?? SWATCH.default }} />{mat}</span>
+                      <span className="mask-conf mono">declared</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {declared.affordances.length > 0 && (
+              <div className="label" style={{ marginTop: 14 }}>Affordances <span style={{ color: 'var(--ink3)', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>{declared.affordances.join(' · ')}</span></div>
+            )}
+          </div>
+        </div>
+      </section>
+    )
+  }
 
   if (!pap) {
     return (
