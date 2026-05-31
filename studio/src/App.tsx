@@ -270,9 +270,14 @@ export default function App() {
     setScreen('editor')
   }, [])
 
+  // Articulation only makes sense for a door / articulated asset — otherwise the
+  // swept-volume backend falls back to a meaningless origin-hinged bounding box.
+  const articulated = selected?.pap?.profile === 'articulated' || selected?.pap?.semantics.cls === 'door'
+
   const inspector = selected?.status === 'ok' && objId
     ? <Inspector pos={pos} setPos={setPos} verdict={verdict} busy={busy}
-        sweptDeg={doorDeg} onSweptDeg={onDoorDeg}
+        sweptDeg={articulated ? doorDeg : undefined}
+        onSweptDeg={articulated ? onDoorDeg : undefined}
         onValidate={onValidate} onRepair={onRepair} onCommit={onCommit} />
     : undefined
 
