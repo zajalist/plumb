@@ -74,42 +74,50 @@ Copy-Item gallery.rrd studio/public/gallery.rrd     # PowerShell
 Two modules carry the design, split so a node type is defined in exactly one place and
 the topology actually drives computation:
 
-- **`src/catalog.ts` — the node registry.** Each op has one `NODE_DEFS` entry holding
+- **`src/lib/catalog.ts` — the node registry.** Each op has one `NODE_DEFS` entry holding
   *both* its `.wdf` metadata (ports, label, hard/soft) *and* its `evaluate()`. The
   palette grouping (`CATALOG`), the seeded Gallery graph (`seedGraph`), and the evaluator
   all derive from this — add a node = one entry, no switch statements to keep in sync.
-- **`src/engine.ts` — the dataflow evaluator.** `evaluateGraph(nodes, edges, scene,
+- **`src/lib/engine.ts` — the dataflow evaluator.** `evaluateGraph(nodes, edges, scene,
   defByOp)` walks the graph kind-by-kind (typed ports guarantee asset → measure → law →
   verdict), computes each measure **once**, and flows its value along the wire into the
   law it feeds. A law reads the margin from the measure actually wired to it — so
   rewiring changes results; the edges are not decorative. It never switches on `op`; the
   registry is injected. The terminal Verdict is green only when every wired hard law
   passes.
+- **`src/lib/connection.ts` — connection rules.** Pure functions: `canConnect` (typed-port
+  validity, either orientation), `orientConnection` (ensures edges always flow provides →
+  accepts), `connect` (applies the drop, enforces single-input on laws/measures, allows
+  many on Verdict).
 
 `stableStatus()` is the single "is it stable?" rule, shared by the `stable` law and the
 App badge. Visual tokens (`STATUS_COLOR`, `PORT_COLOR`, labels) live once in
-`src/theme.ts` and are imported by the canvas and the inspector.
+`src/lib/theme.ts` and are imported by the canvas and the inspector.
 
 ### Honest seam
 
-`engine.ts` is a **client-side stand-in** for Person A's cortex — the conscience is meant
-to render truth, not compute it (spec §3, DECISIONS Q3/Q12), but there's no MCP backend
-wired to the studio yet. The **stability** law is calibrated to reproduce the cortex's
-exact authored numbers (`−7cm` @ x=0, `+1.8cm` @ x=6cm) and interpolates continuously;
-the other measures return representative values. Swap the injected `defByOp` /
-`evaluateGraph` for real `validate_operation` calls at Integration #1 — the graph, ports
-and renderers don't move.
+`src/lib/engine.ts` is a **client-side stand-in** for Person A's cortex — the conscience
+is meant to render truth, not compute it (spec §3, DECISIONS Q3/Q12), but there's no MCP
+backend wired to the studio yet. The **stability** law is calibrated to reproduce the
+cortex's exact authored numbers (`−7cm` @ x=0, `+1.8cm` @ x=6cm) and interpolates
+continuously; the other measures return representative values. Swap the injected `defByOp`
+/ `evaluateGraph` for real `validate_operation` calls at Integration #1 — the graph,
+ports and renderers don't move.
 
 ## Key files
 
-- `src/RerunViewer.tsx` — embeds the core `@rerun-io/web-viewer`, hides panels, exposes
-  time control + time/selection events.
-- `src/ConstraintGraph.tsx` — the editable React-Flow canvas (stateful nodes/edges,
-  typed-port wiring, drag-from-palette, delete, live re-evaluation, node renderers).
-- `src/engine.ts` — the dataflow evaluator + scene model + measure functions.
-- `src/catalog.ts` — the node registry (`NODE_DEFS`) + derived palette + seeded graph.
-- `src/theme.ts` — the single source for status/port colours and labels.
-- `src/Palette.tsx` — the draggable node library sidebar.
-- `src/Inspector.tsx` — the right-hand selected-node inspector.
-- `vite.config.ts` — `wasm()` + `topLevelAwait()` plugins, `esnext` target (the viewer
-  uses top-level await; WebGPU-capable browsers support it natively).
+```
+studio/src/
+  App.tsx                           ← app shell, layout, beat scrubber
+  lib/
+    engine.ts                       ← dataflow evaluator + scene model + measure fns
+    catalog.ts                      ← node registry (NODE_DEFS: metadata + evaluate())
+    connection.ts                   ← canConnect / orientConnection / connect
+    theme.ts                        ← single source for status/port colours + labels
+  components/
+    ConstraintGraph.tsx             ← editable React-Flow canvas + node renderers
+    Palette.tsx                     ← draggable node library sidebar (left)
+    Inspector.tsx                   ← selected-node inspector (right)
+    RerunViewer.tsx                 ← embeds @rerun-io/web-viewer, hides panels
+vite.config.ts                      ← wasm() + topLevelAwait() + esnext target
+```
