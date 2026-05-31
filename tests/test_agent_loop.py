@@ -133,9 +133,18 @@ def test_run_episode_uses_suggested_transform_for_the_repair():
 
 
 def test_run_episode_is_pure_consumer_no_cortex_import():
-    import sys
-    run_episode(FakeCortex(), _SCENE, proposer=ScriptedProposer())
-    assert not any(m == "cortex" or m.startswith("cortex.") for m in sys.modules), \
+    # Run a full episode in a FRESH interpreter and confirm cortex never enters sys.modules.
+    # Subprocess isolation keeps this honest when the cortex suite runs in the same session.
+    from tests.helpers import cortex_modules_after
+    setup = (
+        "from contracts import Transform\n"
+        "from conscience.agent_loop import ScriptedProposer, run_episode\n"
+        "from conscience.cortex_client import FakeCortex\n"
+        "scene = {'selector': 'tag:plumb', 'object': 'bronze_figure_03', "
+        "'initial': Transform(pos=[0.0, 0.0, 0.40], quat=[0, 0, 0, 1])}\n"
+        "run_episode(FakeCortex(), scene, proposer=ScriptedProposer())\n"
+    )
+    assert cortex_modules_after(setup) == [], \
         "the driver must never pull in cortex internals — only contracts + fixtures"
 
 

@@ -13,6 +13,7 @@ JSON + PAP + Transform alone — no physics, no cortex import.
 
 from __future__ import annotations
 
+import gc
 import os
 
 import rerun as rr
@@ -77,15 +78,48 @@ def test_init_recording_returns_stream_and_sets_right_hand_z_up():
 # --------------------------------------------------------------------------- #
 # draw_verdict writes a non-empty .rrd (the headline headless guarantee)
 # --------------------------------------------------------------------------- #
+def _empty_recording_size() -> int:
+    """Bytes on disk for a recording that logs NOTHING (header-only baseline).
+
+    An empty Rerun `.rrd` is already a few KB of stream header, so `getsize > 0`
+    proves nothing about whether any entity actually reached disk. We capture this
+    baseline in-test so the real assertion can demand the rendered recording be
+    *meaningfully larger* than a recording with zero logged content.
+    """
+    path = tmp_path(".rrd")
+    rec = rr.RecordingStream("plumb-conscience")
+    rec.save(path)
+    del rec
+    gc.collect()  # dropping the stream flushes the file
+    return os.path.getsize(path)
+
+
 def test_draw_topple_then_repaired_write_nonempty_rrd():
+    # An empty recording is already ~3 KB of header, so a bare getsize>0 is vacuous.
+    # Anchor against a zero-content baseline captured in this same test and require
+    # the rendered recording to be substantially larger — proof real entities
+    # (bbox / com / support / gravity / ghost / fix) were actually serialized to disk.
+    baseline = _empty_recording_size()
+    assert baseline > 0  # sanity: even an empty recording writes a header
+
     for verdict in (fixtures.VERDICT_TOPPLE, fixtures.VERDICT_REPAIRED):
         path = tmp_path(".rrd")
         rec = rerun_viz.init_recording(path)
         rerun_viz.draw_verdict(rec, fixtures.BRONZE_FIGURE, _T, verdict)
-        # flush by dropping the stream, then assert the file is non-empty.
+        # flush by dropping the stream, then assert the file holds real content.
         del rec
+        gc.collect()
         assert os.path.exists(path)
-        assert os.path.getsize(path) > 0
+        size = os.path.getsize(path)
+        assert size > 0
+        # The rendered beat must carry far more than an empty recording's header:
+        # require both a comfortable absolute margin and a strong multiple so the
+        # test fails if draw_verdict ever logs nothing.
+        assert size > baseline + 4096, (
+            f"rendered .rrd ({size} B) is barely larger than an empty recording "
+            f"({baseline} B) — no entities reached disk"
+        )
+        assert size > baseline * 2
 
 
 def test_draw_verdict_runs_without_error_on_both_fixtures():
@@ -190,7 +224,8 @@ def test_no_fix_arrow_when_all_gates_pass():
 
 
 def test_pure_consumer_does_not_import_cortex():
-    # The conscience renders from the contract only — no cortex dependency.
-    import sys
-    assert not any(m == "cortex" or m.startswith("cortex.") for m in sys.modules), \
+    # The conscience renders from the contract only — checked in a FRESH interpreter so a
+    # cortex-suite run in the same session can't pollute sys.modules and fail this spuriously.
+    from tests.helpers import cortex_modules_after
+    assert cortex_modules_after("import conscience.rerun_viz") == [], \
         "rerun_viz must never pull in cortex internals"
