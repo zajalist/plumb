@@ -1,4 +1,5 @@
 import { Icon } from './Icons'
+import { DragField } from './DragField'
 import type { Verdict } from './api'
 
 export function Inspector({ pos, setPos, verdict, busy, onValidate, onRepair, onCommit }: {
@@ -19,13 +20,10 @@ export function Inspector({ pos, setPos, verdict, busy, onValidate, onRepair, on
       <div className="label" style={{ marginBottom: 8 }}>Placement</div>
       <div className="insp-grid">
         {AXES.map((ax, i) => (
-          <label className="insp-field" key={ax}>
+          <div className="insp-field" key={ax}>
             <span>{ax}</span>
-            <input
-              type="number" step="0.01" value={pos[i]}
-              onChange={(e) => set(i, parseFloat(e.target.value) || 0)}
-            />
-          </label>
+            <DragField value={pos[i]} onChange={(v) => set(i, v)} />
+          </div>
         ))}
       </div>
 

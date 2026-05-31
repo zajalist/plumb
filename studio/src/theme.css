@@ -204,6 +204,11 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .insp-field span{font-size:9.5px;letter-spacing:.1em;color:var(--ink4);text-transform:uppercase}
 .insp-field input{width:100%;background:var(--field);border:1px solid var(--field-b);border-radius:3px;color:var(--ink);font-family:var(--sans);font-variant-numeric:tabular-nums;font-size:12px;padding:6px 8px}
 .insp-field input:focus{outline:none;border-color:var(--sage)}
+/* Gaea-style drag-slider field (drag to scrub, click to type) */
+.dragfield{position:relative;width:100%;height:30px;border-radius:3px;overflow:hidden;background:var(--field);border:1px solid var(--field-b);display:flex;align-items:center;justify-content:center;cursor:ew-resize;user-select:none;touch-action:none}
+.dragfield:hover{border-color:var(--sage)}
+.dragfield .fill{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,rgba(52,192,173,.26),rgba(52,192,173,.08));border-right:1px solid rgba(52,192,173,.5);pointer-events:none}
+.dragfield .dv{position:relative;font-variant-numeric:tabular-nums;font-size:12px;color:var(--ink);pointer-events:none}
 .insp-readout{font-variant-numeric:tabular-nums;font-size:11.5px;margin-top:10px}
 .insp-btns{display:flex;gap:7px;margin-top:12px}
 .ibtn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:32px;border-radius:4px;border:1px solid var(--line2);background:linear-gradient(180deg,#1B1F23,#16191C);color:var(--ink2);font-family:var(--sans);font-size:12px;font-weight:500;cursor:pointer}
