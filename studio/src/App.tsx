@@ -14,7 +14,7 @@ import { ReactFlowProvider } from '@xyflow/react'
 import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
 import Palette from './components/Palette'
 import { INITIAL_SCENE, type SceneState } from './lib/engine'
-import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health, type Verdict, type WdfDoc, type PAP } from './api'
+import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health, swept, type Verdict, type WdfDoc, type PAP, type Swept } from './api'
 import './App.css'
 
 export default function App() {
@@ -57,6 +57,10 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [nodeH, setNodeH] = useState(300)
 
+  // door swing articulation (WP-6): angle → real /swept wedge in the viewport
+  const [doorDeg, setDoorDeg] = useState(0)
+  const [sweptGeo, setSweptGeo] = useState<Swept | null>(null)
+
   // node-editor scene (Fara's editable constraint graph; its own live "knob")
   const [scene, setScene] = useState<SceneState>(INITIAL_SCENE)
   const setBronzeX = useCallback((x: number) => setScene((s) => ({ ...s, bronzeX: x })), [])
@@ -97,7 +101,7 @@ export default function App() {
   }, [])
 
   // reset the loop when the selected asset changes
-  useEffect(() => { setPos([0, 0, 0.4]); setVerdict(null) }, [sel])
+  useEffect(() => { setPos([0, 0, 0.4]); setVerdict(null); setDoorDeg(0); setSweptGeo(null) }, [sel])
 
   // Bake one queued file through the real backend, walking its status (converting
   // for .uasset → baking → ok/error) so the stage queue shows live progress.
@@ -186,6 +190,13 @@ export default function App() {
     try { await commit(objId, pos) } finally { setBusy(false) }
   }, [objId, pos])
 
+  // Articulation (WP-6): set the door swing angle → fetch the real swept wedge.
+  const onDoorDeg = useCallback(async (deg: number) => {
+    setDoorDeg(deg)
+    if (!objId || deg <= 0) { setSweptGeo(null); return }
+    try { setSweptGeo(await swept(objId, deg)) } catch { setSweptGeo(null) }
+  }, [objId])
+
   // material-confirm loop: re-bake the selected mesh with the confirmed per-part
   // materials (now they drive physics) and lock them into the PAP.
   const onConfirmMaterials = useCallback(async (materials: Record<string, string>) => {
@@ -222,6 +233,7 @@ export default function App() {
 
   const inspector = selected?.status === 'ok' && objId
     ? <Inspector pos={pos} setPos={setPos} verdict={verdict} busy={busy}
+        sweptDeg={doorDeg} onSweptDeg={onDoorDeg}
         onValidate={onValidate} onRepair={onRepair} onCommit={onCommit} />
     : undefined
 
@@ -266,7 +278,7 @@ export default function App() {
           onUpdate={(id, patch) => setAssets((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)))} />
         <Viewport name={selected?.name ?? ''} file={selected?.file} extras={selected?.extras}
           pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status}
-          onDropFiles={onAddFiles} />
+          swept={sweptGeo} onDropFiles={onAddFiles} />
         <Properties pap={selected?.pap ?? null} footer={inspector}
           onConfirm={onConfirmMaterials} onCloseMesh={onCloseMesh} onEditPap={onEditPap} busy={busy} declared={selected?.wdf} />
       </div>
