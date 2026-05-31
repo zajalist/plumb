@@ -400,8 +400,8 @@ def add_mask(asset_id: str, name: str, archetype: str, data: dict,
 def compute_mask(asset_id: str, provider_key: str) -> str:
     """Run a server-side mask provider (e.g. a geometry mask) for an asset and store it.
 
-    Image-based providers (HF/Gemini) need rendered views and are not computable here;
-    use the studio's ``POST /masks/{asset_id}/compute`` for those.
+    Image-based providers (HF / Gemini / Vultr) need rendered views and are not computable
+    here; use the studio's ``POST /masks/{asset_id}/compute`` for those.
 
     Returns
     -------
@@ -433,6 +433,45 @@ def remove_mask(asset_id: str, mask_id: str) -> str:
 # asset_id -> UE StaticMesh package path (e.g. "/Game/PlumbImport/SM_Tree"), used by
 # the headless UE pass to spawn the right mesh at each committed transform.
 _ue_assets: dict[str, str] = {}
+
+# node_id -> {"ok": bool|None, "detail": str|None}: the latest verdict per node, so the
+# live studio scene view can colour each tree (green valid / red failing / grey untested).
+_verdicts: dict[str, dict] = {}
+
+
+def _sync_scene() -> None:
+    """Mirror the world (+ latest verdicts) to the shared scene file the studio polls.
+
+    Best-effort: a write failure never breaks a tool call. This is what makes the forest
+    the agent builds over MCP appear, live, in the PLUMB studio viewport.
+    """
+    try:
+        from cortex import scene_store
+
+        nodes, assets = [], {}
+        for nid in _world.nodes():
+            node = _world.get(nid)
+            pap = node.pap
+            v = _verdicts.get(nid, {})
+            nodes.append({
+                "id": nid,
+                "asset_id": pap.asset_id,
+                "pos": [float(x) for x in node.transform.pos],
+                "quat": [float(x) for x in node.transform.quat],
+                "scale": [float(x) for x in node.transform.scale],
+                "ok": v.get("ok"),
+                "detail": v.get("detail"),
+                "mass_kg": float(pap.physical.mass_kg),
+            })
+            if pap.asset_id not in assets:
+                assets[pap.asset_id] = {
+                    "obb": [float(x) for x in pap.geometry.obb],
+                    "mass_kg": float(pap.physical.mass_kg),
+                    "ue_asset": _ue_assets.get(pap.asset_id),
+                }
+        scene_store.save_scene({"nodes": nodes, "assets": assets})
+    except Exception:
+        pass
 
 
 def _forest_laws(laws_json: str) -> list[dict]:
@@ -519,6 +558,8 @@ def place_asset(asset_id: str, node_id: str, pos: list[float],
         _world.update_transform(node_id, tf)
     else:
         _world.add(node_id, pap, tf)
+    _verdicts.pop(node_id, None)  # moved → its old verdict is stale until re-validated
+    _sync_scene()
     return json.dumps({"node_id": node_id, "placed": True})
 
 
@@ -538,6 +579,9 @@ def validate_node(node_id: str, laws_json: str = "[]") -> str:
     node = _world.get(node_id)
     diff = Diff(object=node_id, transform=node.transform)
     verdict = _validate_operation(_world, diff, laws)
+    g = next((x for x in verdict.gates if x.gate == verdict.stopped_at), None)
+    _verdicts[node_id] = {"ok": verdict.ok, "detail": (g.detail if g else None)}
+    _sync_scene()
     return verdict.model_dump_json()
 
 
@@ -546,6 +590,8 @@ def remove_node(node_id: str) -> str:
     """Drop a placed node from the world (e.g. a rejected placement). JSON ``true``/``false``."""
     try:
         _world.remove(node_id)
+        _verdicts.pop(node_id, None)
+        _sync_scene()
         return json.dumps(True)
     except KeyError:
         return json.dumps(False)
@@ -557,6 +603,8 @@ def clear_forest() -> str:
     n = len(_world.nodes())
     for nid in list(_world.nodes()):
         _world.remove(nid)
+    _verdicts.clear()
+    _sync_scene()
     return json.dumps({"cleared": n})
 
 
@@ -596,11 +644,13 @@ def validate_forest(laws_json: str = "[]") -> str:
         node = _world.get(nid)
         diff = Diff(object=nid, transform=node.transform)
         verdict = _validate_operation(_world, diff, laws)
+        g = next((x for x in verdict.gates if x.gate == verdict.stopped_at), None)
+        _verdicts[nid] = {"ok": verdict.ok, "detail": (g.detail if g else None)}
         if not verdict.ok:
-            g = next((x for x in verdict.gates if x.gate == verdict.stopped_at), None)
             failures.append({"node_id": nid,
                              "stopped_at": verdict.stopped_at.value if verdict.stopped_at else None,
                              "detail": g.detail if g else None})
+    _sync_scene()
     return json.dumps({"ok": not failures, "n": len(_world.nodes()), "failures": failures})
 
 

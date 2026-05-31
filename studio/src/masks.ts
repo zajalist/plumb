@@ -2,7 +2,7 @@
 const BASE = (import.meta as any).env?.VITE_API ?? 'http://localhost:8000'
 
 export type Archetype = 'categorical' | 'scalar' | 'vector' | 'markers'
-export type MaskSource = 'geometry' | 'hf' | 'gemini' | 'mcp'
+export type MaskSource = 'geometry' | 'hf' | 'vultr' | 'gemini' | 'mcp'
 export type MaskCategory = 'material' | 'physics' | 'artistic' | 'affordance' | 'custom'
 export type MaskRole = 'surface' | 'overlay'
 
@@ -46,9 +46,11 @@ export async function listMasks(assetId: string): Promise<Mask[]> {
   return (await r.json()).masks
 }
 
-export async function computeMask(assetId: string, providerKey: string, images: Blob[] = []): Promise<Mask> {
+export async function computeMask(assetId: string, providerKey: string, images: Blob[] = [],
+                                  params: Record<string, string> = {}): Promise<Mask> {
   const fd = new FormData()
   fd.append('provider_key', providerKey)
+  if (Object.keys(params).length) fd.append('params', JSON.stringify(params))
   images.forEach((b, i) => fd.append('images', b, `render_${i}.png`))
   const r = await fetch(`${BASE}/masks/${encodeURIComponent(assetId)}/compute`, { method: 'POST', body: fd })
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? 'mask compute failed')

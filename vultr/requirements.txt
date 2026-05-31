@@ -1,0 +1,11 @@
+# plumb Vultr mask-inference box. Install torch FIRST with the right CUDA wheel
+# (see README — e.g. `pip install torch --index-url https://download.pytorch.org/whl/cu121`),
+# then `pip install -r requirements.txt`.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+transformers>=4.44
+pillow>=10.0
+numpy>=1.26
+accelerate>=0.30
+timm>=1.0          # Depth-Anything backbone
+scipy>=1.11        # SAM mask post-processing

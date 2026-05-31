@@ -23,7 +23,16 @@ type Props = {
 }
 
 function pill(source: string): string {
-  return source === 'hf' ? 'hf' : source === 'gemini' ? 'gem' : source === 'mcp' ? 'mcp' : 'geo'
+  return source === 'hf' ? 'hf' : source === 'vultr' ? 'vlt'
+    : source === 'gemini' ? 'gem' : source === 'mcp' ? 'mcp' : 'geo'
+}
+
+// Why a provider is greyed out: HF/Gemini need a key; the Vultr box just has to be up.
+function unavailableHint(source: string): string {
+  return source === 'vultr' ? 'Vultr box offline — start it & set .vultr_url' : `set ${source.toUpperCase()} key`
+}
+function unavailablePill(source: string): string {
+  return source === 'vultr' ? 'box offline' : `no ${source} key`
 }
 
 function Row({ p, active, computing, error, onClick }: {
@@ -34,13 +43,13 @@ function Row({ p, active, computing, error, onClick }: {
   return (
     <div className={`mrow${active ? ' sel' : ''}${disabled ? ' dis' : ''}`}
          onClick={disabled ? undefined : onClick}
-         title={disabled ? `unavailable — set ${p.source.toUpperCase()} key` : p.name}>
+         title={disabled ? `unavailable — ${unavailableHint(p.source)}` : p.name}>
       <Icon name={eye} className={`mrow-eye${active ? ' on' : ''}`} />
       <span className="mrow-name">{p.name}</span>
       {error
         ? <span className="mrow-err">{error}</span>
         : disabled
-          ? <span className="mrow-err soft">no {p.source} key</span>
+          ? <span className="mrow-err soft">{unavailablePill(p.source)}</span>
           : <span className={`mpill ${pill(p.source)}`}>{p.source === 'geometry' ? 'geo' : p.source}</span>}
       {computing && <span className="mrow-bar" />}
     </div>

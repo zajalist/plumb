@@ -27,6 +27,9 @@ plumb-refined.png
 .gemini_key
 # Secrets — Hugging Face token fallback (mask providers read this if env unset)
 .hf_token
+# Vultr-hosted mask box — public URL + bearer token fallbacks (vultr provider reads these)
+.vultr_url
+.vultr_token
 
 # studio test artifacts / screenshots
 studio/test_figure.obj

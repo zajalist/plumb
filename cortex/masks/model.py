@@ -18,7 +18,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, model_validator
 
 Archetype = Literal["categorical", "scalar", "vector", "markers"]
-Source = Literal["geometry", "hf", "gemini", "mcp"]
+Source = Literal["geometry", "hf", "vultr", "gemini", "mcp"]
 Category = Literal["material", "physics", "artistic", "affordance", "custom"]
 Role = Literal["surface", "overlay"]
 

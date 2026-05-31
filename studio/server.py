@@ -50,6 +50,10 @@ class Placement(BaseModel):
     pos: list[float]
     quat: list[float] = [0.0, 0.0, 0.0, 1.0]
     scale: list[float] = [1.0, 1.0, 1.0]
+    # Free-standing stability model: the support base co-moves with the body (an
+    # object resting on the floor/terrain), so off-origin placement no longer
+    # topples it — only real tilt/slope does. False → the anchored pedestal model.
+    free_standing: bool = False
 
 
 def _place(p: Placement):
@@ -106,14 +110,27 @@ def _hf_status() -> dict:
     return {"available": bool(tok), "key": bool(tok)}
 
 
+def _vultr_status() -> dict:
+    """Whether the Vultr-hosted mask providers can run (URL configured + box reachable).
+
+    Delegates to the provider module so the URL resolution + cached health ping stay in one
+    place (mirrors how ``cortex/masks/providers/vultr`` gates availability)."""
+    try:
+        from cortex.masks.providers import vultr
+        url = vultr._vultr_url()
+        return {"available": bool(url) and vultr._health_ok(), "url": bool(url)}
+    except Exception:
+        return {"available": False, "url": False}
+
+
 @app.get("/health")
 def health() -> dict:
-    """Liveness + whether cortex, Unreal convert, Gemini, and HF masks are wired."""
+    """Liveness + whether cortex, Unreal convert, Gemini, HF, and Vultr masks are wired."""
     from studio.semantics import gemini_status
     from studio.uasset import ue_status
 
     return {"ok": True, "cortex": _cortex_available(), "ue": ue_status(),
-            "gemini": gemini_status(), "hf": _hf_status()}
+            "gemini": gemini_status(), "hf": _hf_status(), "vultr": _vultr_status()}
 
 
 @app.post("/semantics")
@@ -404,7 +421,8 @@ def validate(p: Placement) -> dict:
     from cortex.orchestrator import validate_operation
 
     tf = _place(p)
-    verdict = validate_operation(_world(), Diff(object=p.object, transform=tf))
+    laws = [{"law": "free_standing"}] if p.free_standing else None
+    verdict = validate_operation(_world(), Diff(object=p.object, transform=tf), laws=laws)
     return verdict.model_dump()
 
 
@@ -451,13 +469,17 @@ def get_masks(asset_id: str) -> dict:
 async def compute_mask(
     asset_id: str,
     provider_key: str = Form(...),
+    params: str = Form(default=""),
     images: list[UploadFile] = File(default=[]),
 ) -> dict:
     """Run a mask provider for an asset, store the result, and return the Mask.
 
-    ``images`` (rendered PNGs) are required by HF/Gemini providers; geometry providers
-    ignore them. 404 unknown asset · 503 provider unavailable/needs key · 502 compute error.
+    ``images`` (rendered PNGs) are required by HF/Gemini/Vultr providers; geometry providers
+    ignore them. ``params`` is an optional JSON blob of per-compute knobs (e.g. the Vultr
+    ``text_mask`` ``prompt``). 404 unknown asset · 503 provider unavailable/needs key · 502 compute error.
     """
+    import json as _json
+
     import cortex.masks as masks
     from cortex.masks import store
     from cortex.masks.registry import Asset
@@ -467,7 +489,12 @@ async def compute_mask(
     if asset_id not in _ASSETS:
         raise HTTPException(status_code=404, detail=f"unknown asset {asset_id!r}; bake it first")
     img_bytes = [await f.read() for f in images] if images else []
-    asset = Asset(asset_id, pap=_ASSETS[asset_id], parts=store.load_parts(asset_id), images=img_bytes)
+    try:
+        mask_params = _json.loads(params) if params else {}
+    except ValueError:
+        mask_params = {}
+    asset = Asset(asset_id, pap=_ASSETS[asset_id], parts=store.load_parts(asset_id),
+                  images=img_bytes, mask_params=mask_params)
     try:
         # Run the heavy CPU/network compute OFF the event loop so the backend (and the
         # studio) stay responsive — otherwise a single compute freezes every request.
@@ -487,6 +514,18 @@ def delete_mask(asset_id: str, mask_id: str) -> dict:
     from cortex.masks import store
 
     return {"ok": store.delete(asset_id, mask_id)}
+
+
+@app.get("/scene")
+def scene() -> dict:
+    """The live forest the agent is building over MCP (shared ``bakes/scene.json``).
+
+    The cortex MCP server writes the scene on every place/validate; the studio polls this
+    so the forest — each tree coloured by its latest verdict — renders live in the viewport.
+    """
+    from cortex import scene_store
+
+    return scene_store.load_scene()
 
 
 class SweptReq(BaseModel):

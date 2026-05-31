@@ -18,8 +18,7 @@ import os
 import urllib.request
 from pathlib import Path
 
-import numpy as np
-
+from ..banding import band_regions
 from ..registry import MaskProvider, register
 
 SEGMENT_MODEL = os.environ.get("PLUMB_HF_SEGMENT_MODEL", "nvidia/segformer-b0-finetuned-ade-512-512")
@@ -51,32 +50,10 @@ def _hf_request(model: str, image_bytes: bytes):
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _znorm(asset):
-    """Each part id with its centroid height normalised to [0,1] (bottom→top)."""
-    cents = [(p["id"], float(np.asarray(p.get("centroid", [0, 0, 0]), float)[2])) for p in asset.parts]
-    if not cents:
-        return []
-    zs = [z for _, z in cents]
-    lo, hi = min(zs), max(zs)
-    span = (hi - lo) or 1.0
-    return [(pid, (z - lo) / span) for pid, z in cents]
-
-
 def _part_segmentation(asset, images) -> dict:
     segs = _hf_request(SEGMENT_MODEL, images[0])
-    labels = [s.get("label", f"seg_{i}") for i, s in enumerate(segs)] or ["region"]
-    palette = ["#34C0AD", "#D9A84C", "#7E8AA0", "#E0694F", "#6E8B7A", "#A088B0", "#B58A5A"]
-    ordered = sorted(_znorm(asset), key=lambda kv: kv[1])  # bottom → top
-    n = len(labels)
-    regions: dict[str, dict] = {}
-    for i, (pid, _zn) in enumerate(ordered):
-        band = min(n - 1, int(i / max(1, len(ordered)) * n))
-        lab = labels[band]
-        r = regions.setdefault(lab, {"label": lab, "color": palette[band % len(palette)], "part_ids": []})
-        r["part_ids"].append(pid)
-    if not regions:
-        regions["region"] = {"label": "region", "color": palette[0], "part_ids": []}
-    return {"regions": list(regions.values())}
+    labels = [s.get("label", f"seg_{i}") for i, s in enumerate(segs)]
+    return band_regions(asset.parts, labels)
 
 
 register(MaskProvider("part_segmentation", "Part segmentation", "hf", "physics", "categorical",

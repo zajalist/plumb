@@ -971,7 +971,14 @@ export function Viewport({ name, file, extras, pap, pos, rot = [0, 0, 0], scale 
     try {
       let images: Blob[] = []
       if (prov.needs_images) { const b = await captureViewport(); if (b) images = [b] }
-      const m = await computeMask(assetId, key, images)
+      // Vultr text-prompted mask: ask what to segment ("handle", "fragile glass", …).
+      let params: Record<string, string> = {}
+      if (key === 'text_mask') {
+        const prompt = window.prompt('Segment what? (e.g. "handle", "fragile glass")')?.trim()
+        if (!prompt) { setComputing((s) => { const n = new Set(s); n.delete(key); return n }); return }
+        params = { prompt }
+      }
+      const m = await computeMask(assetId, key, images, params)
       setMasks((prev) => [...prev.filter((x) => x.id !== m.id), m])
     } catch {
       setMaskErrors((e) => ({ ...e, [key]: 'failed' }))
