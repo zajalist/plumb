@@ -158,37 +158,38 @@ function makeGradientMat(): THREE.ShaderMaterial {
   })
 }
 
-// One downward gravity arrow with a teal→amber gradient along its length.
-function gradientArrow(top: THREE.Vector3, length: number, radius: number): THREE.Group {
+// One subtle, translucent downward gravity arrow (muted amber).
+function gravityArrow(tipY: number, x: number, z: number, length: number, radius: number): THREE.Group {
   const g = new THREE.Group()
-  const cTop = new THREE.Color(0x34c0ad), cBot = new THREE.Color(0xd9a84c)
-  const sl = length * 0.74
-  const shaft = new THREE.CylinderGeometry(radius * 0.42, radius * 0.42, sl, 8)
-  const p = shaft.attributes.position, col = new Float32Array(p.count * 3)
-  for (let i = 0; i < p.count; i++) { const t = p.getY(i) / sl + 0.5; const c = cBot.clone().lerp(cTop, t); col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b }
-  shaft.setAttribute('color', new THREE.BufferAttribute(col, 3))
-  const sm = new THREE.Mesh(shaft, new THREE.MeshBasicMaterial({ vertexColors: true }))
-  sm.position.copy(top).add(new THREE.Vector3(0, -sl / 2, 0)); g.add(sm)
-  const head = new THREE.Mesh(new THREE.ConeGeometry(radius, length * 0.28, 12), new THREE.MeshBasicMaterial({ color: cBot }))
-  head.rotation.x = Math.PI; head.position.copy(top).add(new THREE.Vector3(0, -(sl + length * 0.14), 0)); g.add(head)
+  const mat = new THREE.MeshBasicMaterial({ color: 0xd9a84c, transparent: true, opacity: 0.3, depthWrite: false })
+  const sl = length * 0.8
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.36, radius * 0.36, sl, 6), mat)
+  shaft.position.set(x, tipY + length * 0.2 + sl / 2, z); g.add(shaft)
+  const head = new THREE.Mesh(new THREE.ConeGeometry(radius, length * 0.2, 10), mat)
+  head.rotation.x = Math.PI; head.position.set(x, tipY + length * 0.1, z); g.add(head)
   return g
 }
 
-// A field of downward gravity arrows over the model's footprint (world space, Y-up),
-// sized to the model — the "inertia forces" pointing at gravity. Model-relative, so
-// there are no physics-unit blow-ups.
-function buildForceField(group: THREE.Group, box: THREE.Box3) {
+// A field of downward gravity arrows, each raycast straight down and SNAPPED so its
+// tip rests on the lowest surface of the model at that (x,z) — i.e. on the contact
+// point gravity drives the body toward. Skips columns where the model is hollow.
+function buildForceField(group: THREE.Group, content: THREE.Object3D, box: THREE.Box3) {
   while (group.children.length) { const c = group.children[0]; group.remove(c); c.traverse?.((o) => { const m = o as THREE.Mesh; m.geometry?.dispose?.() }) }
   if (box.isEmpty()) return
   const size = box.getSize(new THREE.Vector3())
   const R = Math.max(size.x, size.y, size.z, 1e-3)
-  const top = box.max.y + R * 0.05
-  const len = size.y * 0.55 + R * 0.12
-  const rad = R * 0.014
-  const N = 3
+  const rad = R * 0.011
+  const len = size.y * 0.3 + R * 0.04
+  const ray = new THREE.Raycaster()
+  const down = new THREE.Vector3(0, -1, 0)
+  const N = 4
   for (let ix = 0; ix < N; ix++) for (let iz = 0; iz < N; iz++) {
-    const fx = 0.2 + (ix / (N - 1)) * 0.6, fz = 0.2 + (iz / (N - 1)) * 0.6
-    group.add(gradientArrow(new THREE.Vector3(box.min.x + fx * size.x, top, box.min.z + fz * size.z), len, rad))
+    const x = box.min.x + (0.16 + (ix / (N - 1)) * 0.68) * size.x
+    const z = box.min.z + (0.16 + (iz / (N - 1)) * 0.68) * size.z
+    ray.set(new THREE.Vector3(x, box.max.y + R, z), down)
+    const hits = ray.intersectObject(content, true)
+    if (!hits.length) continue
+    group.add(gravityArrow(hits[hits.length - 1].point.y, x, z, len, rad)) // lowest hit
   }
 }
 
@@ -200,7 +201,7 @@ function updateForce(r: Refs, view: 'textured' | 'masks' | 'inertia') {
   if (!box.isEmpty()) {
     r.gradMat.uniforms.uMin.value = box.min.y
     r.gradMat.uniforms.uMax.value = box.max.y
-    buildForceField(r.forceGroup, box)
+    buildForceField(r.forceGroup, r.content, box)
   }
   applyView(r.groups, view, r.gradMat)
   r.forceGroup.visible = view === 'inertia'
@@ -440,6 +441,15 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
         <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
         {emptyMsg && <div className="emptyvp">{emptyMsg}</div>}
         {dropping && <div className="dropover"><Icon name="import" /><span>Drop to bake</span></div>}
+        {view === 'inertia' && hasContent && pap && (
+          <div className="inertia-info">
+            <div className="ii-h">Inertia</div>
+            <div className="ii-row"><span>mass</span><b>{pap.physical.mass_kg.toFixed(1)} kg</b></div>
+            <div className="ii-row"><span>CoM height</span><b>{(pap.physical.com?.[2] ?? 0).toFixed(3)} m</b></div>
+            <div className="ii-row"><span>radius of gyration</span><b>{gyration(pap)}</b></div>
+            <div className="ii-row"><span>hollow</span><b>{pap.physical.hollow ? 'yes' : 'no'}</b></div>
+          </div>
+        )}
       </div>
     </section>
   )
@@ -468,3 +478,12 @@ const CAM_VIEWS: { v: 'top' | 'front' | 'side' | 'persp'; tip: string; face: Cub
   { v: 'side', tip: 'Side', face: 'right' },
   { v: 'persp', tip: 'Perspective', face: 'none' },
 ]
+
+// Per-axis radius of gyration k_i = sqrt(I_ii / m): how far from the CoM the mass
+// effectively sits about each axis (bigger = harder to spin / topple that way).
+function gyration(pap: PAP): string {
+  const I = pap.physical.inertia, m = pap.physical.mass_kg
+  if (!Array.isArray(I) || I.length !== 3 || !I.every((row) => Array.isArray(row) && row.length === 3) || !(m > 0)) return 'n/a'
+  const k = (i: number) => Math.sqrt(Math.max(0, I[i][i] / m))
+  return `${k(0).toFixed(2)} · ${k(1).toFixed(2)} · ${k(2).toFixed(2)} m`
+}
