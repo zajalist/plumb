@@ -15,6 +15,10 @@ cd "$(dirname "$0")"
 sudo apt-get update -y
 sudo apt-get install -y python3-venv python3-pip
 
+# Vultr Ubuntu images ship with ufw active allowing only SSH (22) — open our port too,
+# otherwise the box is unreachable on 8001 even with the Vultr edge firewall rule in place.
+sudo ufw allow 8001/tcp 2>/dev/null || true
+
 python3 -m venv .venv
 # shellcheck disable=SC1091
 source .venv/bin/activate

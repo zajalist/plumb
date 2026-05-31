@@ -39,6 +39,10 @@ Inference routes take a **PNG body** (`Content-Type: image/png`).
    bash bootstrap.sh
    ```
    If the instance's CUDA version isn't 12.1, edit the `cu121` wheel index in `bootstrap.sh`.
+   > **Two firewalls to open port 8001:** the Vultr *edge* firewall group (portal → Network →
+   > Firewall, or attach a group with a TCP/8001 rule at create time) **and** the box's local
+   > **ufw**, which ships active allowing only SSH. `bootstrap.sh` runs `ufw allow 8001/tcp` for
+   > you; if you skip bootstrap, do it manually or 8001 stays blocked despite the edge rule.
 4. **Wire the studio to the box** — back on your machine, in the repo root:
    ```bash
    echo "http://<INSTANCE_PUBLIC_IP>:8001" > .vultr_url
