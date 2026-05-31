@@ -53,6 +53,19 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .commitcell{display:flex;align-items:center;gap:8px;padding:0 18px;border-left:1px solid var(--line);color:var(--ink3)}
 .commitcell.ready{color:var(--ink2)} .commitcell svg{width:15px;height:15px}
 
+/* laws band (opened .wdf scene constraints) */
+.lawsband{display:flex;align-items:center;gap:14px;height:40px;padding:0 18px;background:var(--surface);border-bottom:1px solid var(--line);overflow-x:auto}
+.lb-title{display:flex;align-items:center;gap:9px;flex:none}
+.lb-title svg{width:14px;height:14px;color:var(--ink3)}
+.lb-title span{font-family:var(--serif);font-size:17px;color:var(--cream);line-height:1}
+.lb-fields{display:flex;gap:7px;flex:none}
+.lb-field{font-size:10px;color:var(--ink4);border:1px solid var(--line2);border-radius:9px;padding:2px 8px}
+.lb-laws{display:flex;gap:7px;margin-left:auto;flex:none}
+.lb-law{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink2);background:var(--inset);border:1px solid var(--line2);border-left-width:2px;border-radius:5px;padding:3px 9px;white-space:nowrap}
+.lb-law.hard{border-left-color:var(--sage)}
+.lb-law.soft{border-left-color:var(--soft)}
+.lb-law em{font-style:normal;font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink4)}
+
 /* body */
 .row{display:flex;flex:1;min-height:0}
 .pane{display:flex;flex-direction:column;min-height:0;background:var(--bg)}

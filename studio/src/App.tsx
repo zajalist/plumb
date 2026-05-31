@@ -7,12 +7,13 @@ import { Properties } from './Properties'
 import { Inspector } from './Inspector'
 import { GateStack } from './GateStack'
 import { Splash } from './Splash'
+import { LawsBand } from './LawsBand'
 import { getRecent, addRecent, type RecentEntry } from './recent'
 import { ReactFlowProvider } from '@xyflow/react'
 import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
 import Palette from './components/Palette'
 import { INITIAL_SCENE, type SceneState } from './lib/engine'
-import { bake, validate, repair, commit, type Verdict } from './api'
+import { bake, validate, repair, commit, openWdf, type Verdict, type WdfDoc } from './api'
 import './App.css'
 
 export default function App() {
@@ -25,6 +26,25 @@ export default function App() {
   const [assets, setAssets] = useState<Asset[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const selected = assets.find((a) => a.id === sel) ?? null
+
+  // opened .wdf scene (declared masks + laws), if any
+  const [wdf, setWdf] = useState<WdfDoc | null>(null)
+  const onOpenFile = useCallback(async (file: File) => {
+    if (file.name.toLowerCase().endsWith('.wdf')) {
+      try {
+        const doc = await openWdf(file)
+        setWdf(doc)
+        const declared = doc.vocabulary.assets.map((a, i): Asset => ({
+          id: `${a.name}-${i}`, name: a.name, status: 'declared', wdf: a,
+        }))
+        setAssets(declared)
+        setSel(declared[0]?.id ?? null)
+      } catch (e) {
+        console.error('open .wdf failed', e)
+      }
+    }
+    openProject(file.name)
+  }, [openProject])
 
   // placement + live verdict (M2)
   const [pos, setPos] = useState<number[]>([0, 0, 0.4])
@@ -98,7 +118,7 @@ export default function App() {
       <>
         <IconDefs />
         <Splash recent={recent} onNew={startNew}
-          onOpen={(f) => openProject(f.name)} onOpenRecent={(e) => openProject(e.name)} />
+          onOpen={onOpenFile} onOpenRecent={(e) => openProject(e.name)} />
       </>
     )
   }
@@ -120,19 +140,20 @@ export default function App() {
           </label>
         </div>
         <div className="proj">
-          <span className="dot" /><span className="mono">untitled.wdf</span>
+          <span className="dot" /><span className="mono">{wdf?.scene ? `${wdf.scene.name}.wdf` : 'untitled.wdf'}</span>
           <span style={{ color: 'var(--ink4)' }}>·</span>{assets.length} assets
         </div>
       </div>
 
       <GateStack verdict={verdict} />
+      {wdf?.scene && <LawsBand scene={wdf.scene} />}
 
       <div className="row">
         <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
         <Viewport file={selected?.file ?? null} name={selected?.name ?? ''}
           pap={selected?.pap ?? null} pos={pos} verdict={verdict} />
         <Properties pap={selected?.pap ?? null} footer={inspector}
-          onConfirm={onConfirmMaterials} busy={busy} />
+          onConfirm={onConfirmMaterials} busy={busy} declared={selected?.wdf} />
       </div>
 
       <div className="nodeeditor">

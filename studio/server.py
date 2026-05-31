@@ -187,6 +187,26 @@ def bake_cached(b: CachedBake) -> dict:
     return {**pap.model_dump(), "parts": parts}
 
 
+@app.post("/open_wdf")
+async def open_wdf(doc: UploadFile = File(...)) -> dict:
+    """Parse a ``.wdf`` document and return its scene as JSON.
+
+    The vocabulary's per-asset ``material`` maps are the declared semantic *masks*;
+    the scene's ``laws`` are the constraints. The studio renders both — no bake
+    needed, the language already carries the meaning.
+    """
+    from dataclasses import asdict
+
+    from conscience.wdf import WdfParseError, loads
+
+    text = (await doc.read()).decode("utf-8", "replace")
+    try:
+        parsed = loads(text)
+    except WdfParseError as e:
+        raise HTTPException(status_code=422, detail=f".wdf parse error: {e}") from e
+    return asdict(parsed)
+
+
 @app.post("/validate")
 def validate(p: Placement) -> dict:
     """Place the asset at ``p`` and run the real gate stack. Returns the Verdict."""
