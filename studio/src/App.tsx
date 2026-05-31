@@ -8,7 +8,6 @@ import { PlacementTool } from './PlacementTool'
 import { GateStack } from './GateStack'
 import { Splash } from './Splash'
 import { Stage, type BakeSettings } from './Stage'
-import { LawsBand } from './LawsBand'
 import { getRecent, addRecent, removeRecent, type RecentEntry } from './recent'
 import { ReactFlowProvider } from '@xyflow/react'
 import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
@@ -453,7 +452,6 @@ export default function App() {
         <GateStack verdict={verdict}
           {...(canPlace ? { pos, setPos, rot, setRot, busy, onValidate, onRepair, onCommit, freeStanding, setFreeStanding } : {})} />
       )}
-      {wdf?.scene && <LawsBand scene={wdf.scene} />}
 
       <div className="row" style={{ '--aw': `${leftW}px`, '--pw': `${rightW}px` } as React.CSSProperties}>
         {panels.assets && (

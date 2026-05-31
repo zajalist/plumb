@@ -64,15 +64,28 @@ def _where_centroid(asset, where: str) -> list:
     return mean.tolist()  # center / unknown
 
 
-def _fragility(asset, images) -> dict:
+def _band_scalar(asset, images, key: str, ramp: str) -> dict:
+    """Build a per-part scalar mask from Gemini's per-band scores under ``key``.
+
+    Gemini reasons in coarse top/middle/bottom thirds (it has no part ids); we spread
+    those band scores onto each convex part by its height band (see ``_bands``). Shared by
+    every Gemini scalar mask — fragility, graspability, wear, load-bearing, value, attach-load.
+    """
     res = _semantic_masks(images, "")
-    band_score = {b["band"]: float(b.get("score", 0.0)) for b in res.get("fragility", [])
+    band_score = {b["band"]: float(b.get("score", 0.0)) for b in res.get(key, [])
                   if isinstance(b, dict) and "band" in b}
     bands = _bands(asset)
     vals = {pid: band_score.get(b, 0.0) for pid, b in bands.items()} or {"part_00": 0.0}
     lo, hi = float(min(vals.values())), float(max(vals.values()))
-    return {"per_part": vals, "range": [lo, max(hi, lo + 1e-6)], "ramp": "inferno",
+    return {"per_part": vals, "range": [lo, max(hi, lo + 1e-6)], "ramp": ramp,
             "confidence": res.get("confidence")}
+
+
+def _scalar(key: str, ramp: str):
+    """A compute fn that reads Gemini's ``key`` per-band scores into a scalar mask."""
+    def compute(asset, images):
+        return _band_scalar(asset, images, key, ramp)
+    return compute
 
 
 def _affordances(asset, images) -> dict:
@@ -89,7 +102,19 @@ def _affordances(asset, images) -> dict:
     return {"points": points, "confidence": res.get("confidence")}
 
 
+# Gemini scalar masks — all share the per-band → per-part spread (_band_scalar). Each
+# triggers its own on-demand Gemini call from the mask rail (compute-on-click, not at bake).
 register(MaskProvider("fragility", "Fragility", "gemini", "physics", "scalar",
-                      True, available, _fragility))
+                      True, available, _scalar("fragility", "inferno")))
+register(MaskProvider("graspability", "Graspability", "gemini", "affordance", "scalar",
+                      True, available, _scalar("graspability", "viridis")))
+register(MaskProvider("wear", "Wear", "gemini", "artistic", "scalar",
+                      True, available, _scalar("wear", "magma")))
+register(MaskProvider("load_bearing", "Load-bearing", "gemini", "physics", "scalar",
+                      True, available, _scalar("load_bearing", "plasma")))
+register(MaskProvider("value", "Value", "gemini", "artistic", "scalar",
+                      True, available, _scalar("value", "magma")))
+register(MaskProvider("attach_load", "Attach load", "gemini", "physics", "scalar",
+                      True, available, _scalar("attach_load", "viridis")))
 register(MaskProvider("affordances", "Affordances", "gemini", "affordance", "markers",
                       True, available, _affordances))

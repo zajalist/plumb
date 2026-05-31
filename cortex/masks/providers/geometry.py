@@ -113,6 +113,28 @@ def _gravity_field(asset, images=None) -> dict:
     return {"field": "gravity"}
 
 
+# --- normals (vector): surface normals sampled across the mesh ------------------ #
+
+def _normals(asset, images=None) -> dict:
+    """A field of surface-normal arrows, subsampled from the mesh faces for legibility.
+
+    Exact geometry (face centroid + face normal), so it's deterministic and always
+    available. Arrow length scales to the model so it reads at any asset size.
+    """
+    m = asset.mesh()
+    faces = getattr(m, "faces", None) if m is not None else None
+    if m is None or faces is None or not len(faces):
+        return {"samples": []}
+    centers = np.asarray(m.triangles_center, float)
+    normals = np.asarray(m.face_normals, float)
+    n = len(centers)
+    k = min(48, n)                       # cap the arrow count so the field stays readable
+    idx = np.linspace(0, n - 1, k).astype(int)
+    length = float(np.linalg.norm(m.extents)) * 0.05 or 0.05
+    samples = [{"origin": centers[i].tolist(), "vec": (normals[i] * length).tolist()} for i in idx]
+    return {"samples": samples}
+
+
 register(MaskProvider("materials", "Materials", "geometry", "material", "categorical",
                       False, lambda: True, _materials))
 register(MaskProvider("curvature", "Curvature", "geometry", "artistic", "scalar",
@@ -127,3 +149,5 @@ register(MaskProvider("force_gradient", "Force gradient", "geometry", "physics",
                       False, lambda: True, _force_gradient))
 register(MaskProvider("gravity_field", "Gravity / force", "geometry", "physics", "vector",
                       False, lambda: True, _gravity_field))
+register(MaskProvider("normals", "Surface normals", "geometry", "physics", "vector",
+                      False, lambda: True, _normals))
