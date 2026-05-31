@@ -57,6 +57,22 @@ curl -s -H "Authorization: Bearer $TOK" -H "Content-Type: image/png" \
      --data-binary @render.png "$URL/segment" | jq
 ```
 
+## CPU fallback (GPU access not enabled yet)
+
+Vultr gates Cloud GPU behind a support request — a fresh account that tries to deploy a `vcg-*`
+plan gets `"Please open a support request for access to this product."` While that's pending you
+can run the whole thing on a **regular CPU instance** (available immediately):
+
+1. Deploy a high-frequency instance, e.g. `vhf-4c-16gb`, Ubuntu 22.04, with the same firewall
+   group (port 8001 open).
+2. On the box: `git clone … && cd plumb/vultr && bash bootstrap_cpu.sh`
+   (installs the CPU torch wheel, runs with `VULTR_DEVICE=cpu`).
+3. Wire `.vultr_url` / `.vultr_token` exactly as for the GPU box.
+
+segformer / CLIPSeg / Depth-Anything are usable on CPU (seconds per image); **SAM is slow** on
+CPU (tens of seconds). Swap to the GPU box (`bootstrap.sh`) once Vultr enables it — nothing on the
+cortex/studio side changes, just the box.
+
 ## Swapping / adding models
 
 - **Swap weights:** set `VULTR_SEGMENT_MODEL` / `VULTR_SAM_MODEL` / `VULTR_CLIPSEG_MODEL` /
