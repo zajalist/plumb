@@ -37,6 +37,9 @@ export function AssetsPanel({ assets, selected, onSelect, onImport, onDelete, on
 }) {
   const [menu, setMenu] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [naming, setNaming] = useState(false)   // inline "new folder" input open
+  const [folderName, setFolderName] = useState('')
+  const closeMenu = () => { setMenu(null); setNaming(false); setFolderName('') }
 
   const folders = [...new Set(assets.map((a) => a.folder).filter(Boolean))] as string[]
   const groupOf = (f: string) => assets.filter((a) => a.folder === f)
@@ -45,15 +48,16 @@ export function AssetsPanel({ assets, selected, onSelect, onImport, onDelete, on
 
   const renderAsset = (a: Asset) => (
     <div key={a.id} className={`asset${a.id === selected ? ' sel' : ''}`} onClick={() => onSelect(a.id)}>
-      {a.color && <span className="asset-color" style={{ background: a.color }} />}
-      <div className="thumb"><Icon name="aperture" /></div>
+      <div className="thumb" style={a.color ? { borderColor: a.color, boxShadow: `inset 0 0 0 1px ${a.color}` } : undefined}>
+        <Icon name="aperture" />
+      </div>
       <div className="meta">
         <div className="nm">{a.name}</div>
         <div className="sub">{statusText(a)}</div>
       </div>
       {canEdit && (
         <button className="asset-menu-btn" title="Organise"
-          onClick={(e) => { e.stopPropagation(); setMenu(menu === a.id ? null : a.id) }}>⋯</button>
+          onClick={(e) => { e.stopPropagation(); setMenu(menu === a.id ? null : a.id); setNaming(false) }}>⋯</button>
       )}
       {menu === a.id && (
         <div className="asset-menu" onClick={(e) => e.stopPropagation()}>
@@ -61,27 +65,32 @@ export function AssetsPanel({ assets, selected, onSelect, onImport, onDelete, on
             <div className="am-colors">
               {COLORS.map((c) => (
                 <button key={c} style={{ background: c }} className={a.color === c ? 'on' : ''}
-                  onClick={() => { onUpdate(a.id, { color: a.color === c ? undefined : c }); setMenu(null) }} />
+                  onClick={() => { onUpdate(a.id, { color: a.color === c ? undefined : c }); closeMenu() }} />
               ))}
             </div>
           )}
-          {onUpdate && folders.filter((f) => f !== a.folder).map((f) => (
-            <button className="am-item" key={f} onClick={() => { onUpdate(a.id, { folder: f }); setMenu(null) }}>
-              Move to “{f}”
-            </button>
-          ))}
-          {onUpdate && (
-            <button className="am-item" onClick={() => { const f = window.prompt('Folder name')?.trim(); if (f) onUpdate(a.id, { folder: f }); setMenu(null) }}>
-              New folder…
-            </button>
-          )}
-          {onUpdate && a.folder && (
-            <button className="am-item" onClick={() => { onUpdate(a.id, { folder: undefined }); setMenu(null) }}>
-              Remove from folder
-            </button>
-          )}
-          {onDelete && (
-            <button className="am-item danger" onClick={() => { onDelete(a.id); setMenu(null) }}>Delete asset</button>
+          {naming ? (
+            <input className="am-input" autoFocus placeholder="Folder name…" value={folderName}
+              onChange={(e) => setFolderName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && folderName.trim()) { onUpdate?.(a.id, { folder: folderName.trim() }); closeMenu() }
+                else if (e.key === 'Escape') { setNaming(false); setFolderName('') }
+              }} />
+          ) : (
+            <>
+              {onUpdate && folders.filter((f) => f !== a.folder).map((f) => (
+                <button className="am-item" key={f} onClick={() => { onUpdate(a.id, { folder: f }); closeMenu() }}>
+                  Move to “{f}”
+                </button>
+              ))}
+              {onUpdate && <button className="am-item" onClick={() => setNaming(true)}>New folder…</button>}
+              {onUpdate && a.folder && (
+                <button className="am-item" onClick={() => { onUpdate(a.id, { folder: undefined }); closeMenu() }}>
+                  Remove from folder
+                </button>
+              )}
+              {onDelete && <button className="am-item danger" onClick={() => { onDelete(a.id); closeMenu() }}>Delete asset</button>}
+            </>
           )}
         </div>
       )}
@@ -94,7 +103,7 @@ export function AssetsPanel({ assets, selected, onSelect, onImport, onDelete, on
         <div className="t"><Icon name="aperture" /><span>Assets</span></div>
         <span className="mono" style={{ fontSize: 10, color: 'var(--ink4)' }}>{assets.length}</span>
       </header>
-      <div className="body" onClick={() => setMenu(null)}>
+      <div className="body" onClick={closeMenu}>
         <div className="assetlist">
           {folders.map((f) => (
             <div className="folder" key={f}>
