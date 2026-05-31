@@ -371,12 +371,11 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file, extras, pap?.asset_id])
 
-  // ---- recolour + force overlay on view toggle ----
+  // ---- recolour + (re)build the force field on view toggle ----
   useEffect(() => {
     const r = refs.current
     if (!r) return
-    applyView(r.groups, view, r.gradMat)
-    r.forceGroup.visible = view === 'inertia'
+    updateForce(r, view)   // rebuilds the gravity field too, so it's always fresh
   }, [view, hasContent])
 
   // ---- placement + verdict viz ----
@@ -447,11 +446,11 @@ export function Viewport({ name, file, extras, pap, pos, verdict, status, onDrop
         {dropping && <div className="dropover"><Icon name="import" /><span>Drop to bake</span></div>}
         {view === 'inertia' && hasContent && pap && (
           <div className="inertia-info">
-            <div className="ii-h">Inertia</div>
-            <div className="ii-row"><span>mass</span><b>{pap.physical.mass_kg.toFixed(1)} kg</b></div>
-            <div className="ii-row"><span>CoM height</span><b>{canonCom(pap.physical.com, name)[2].toFixed(3)} m</b></div>
-            <div className="ii-row"><span>radius of gyration</span><b>{gyration(pap)}</b></div>
-            <div className="ii-row"><span>hollow</span><b>{pap.physical.hollow ? 'yes' : 'no'}</b></div>
+            <div className="ii-head"><Icon name="mass" /><span>Inertia</span></div>
+            <div className="ii-row"><span className="ii-k">Mass</span><span className="ii-v">{pap.physical.mass_kg.toFixed(1)} kg</span></div>
+            <div className="ii-row"><span className="ii-k">CoM height</span><span className="ii-v">{canonCom(pap.physical.com, name)[2].toFixed(3)} m</span></div>
+            <div className="ii-row"><span className="ii-k">Gyration</span><span className="ii-v">{gyration(pap)}</span></div>
+            <div className="ii-row"><span className="ii-k">Hollow</span><span className="ii-v">{pap.physical.hollow ? 'yes' : 'no'}</span></div>
           </div>
         )}
       </div>
