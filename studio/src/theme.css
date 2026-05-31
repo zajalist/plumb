@@ -60,23 +60,26 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .proj{margin-left:auto;display:flex;align-items:center;gap:9px;color:var(--ink3);font-size:12px}
 .proj .dot{display:none}
 
-/* gate stack — glass segmented strip */
-.gates{display:flex;align-items:stretch;height:46px;
-  background:linear-gradient(180deg,rgba(38,44,49,.5),rgba(18,21,24,.6));
+/* gate stack — UE4-style toolbar: live 3D icon over label, no boxes */
+.gates{display:flex;align-items:stretch;height:74px;
+  background:linear-gradient(180deg,#1b2024,#121619);
   border-bottom:1px solid var(--line);box-shadow:inset 0 1px 0 var(--glass-hi)}
-.gates .gtitle{display:flex;align-items:center;gap:9px;padding:0 18px;border-right:1px solid var(--glass-b)}
-.gates .gtitle svg{width:15px;height:15px;color:var(--ink3)}
-.gflow{display:flex;align-items:center;flex:1;padding:0 6px}
-.gate{display:flex;align-items:center;gap:9px;padding:0 16px;height:100%;color:var(--ink3)}
-.gate svg{width:16px;height:16px;color:currentColor}
-.gate .gn{font-size:11px;letter-spacing:.10em;text-transform:uppercase;font-weight:600}
-.gate .gv{font-family:var(--sans);font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--ink4)}
-.gate.pass{color:var(--pass)} .gate.pass .gv{color:var(--ink2)}
-.gate.fail{color:var(--fail);box-shadow:inset 0 -2px 0 var(--fail)} .gate.fail .gv{color:var(--fail);font-weight:600}
-.gate.soft{color:var(--soft)} .gate.idle{color:var(--ink4)}
-.chev{color:var(--line2);font-size:13px;user-select:none}
-.commitcell{display:flex;align-items:center;gap:8px;padding:0 18px;border-left:1px solid var(--glass-b);color:var(--ink3)}
-.commitcell.ready{color:var(--sage)} .commitcell svg{width:15px;height:15px}
+.gates .gtitle{display:flex;align-items:center;padding:0 20px;border-right:1px solid var(--glass-b)}
+.gates .gtitle .label{color:var(--ink2)}
+.gflow{display:flex;align-items:stretch;flex:1;padding:0 6px}
+.gate{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  width:88px;border-radius:8px;color:var(--ink3);cursor:default}
+.gate:hover{background:rgba(255,255,255,.03)}
+.gico{width:42px;height:42px;display:block}
+.gate .gn{font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:var(--ink2);margin-top:3px}
+.gate .gv{font-variant-numeric:tabular-nums;font-size:10px;color:var(--ink4)}
+.gate.pass .gn{color:var(--pass)} .gate.pass .gv{color:var(--ink2)}
+.gate.fail .gn{color:var(--fail)} .gate.fail .gv{color:var(--fail)}
+.gate.soft .gn{color:var(--soft)} .gate.idle .gn{color:var(--ink3)}
+.commitcell{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  width:96px;border-left:1px solid var(--glass-b);color:var(--ink3)}
+.commitcell .label{margin-top:3px;color:var(--ink3)}
+.commitcell.ready .label{color:var(--sage)}
 
 /* laws band (opened .wdf scene constraints) */
 .lawsband{display:flex;align-items:center;gap:14px;height:40px;padding:0 18px;
