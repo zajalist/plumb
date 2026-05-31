@@ -10,7 +10,8 @@ body,
   height: 100%;
 }
 body {
-  font-family: Inter, system-ui, sans-serif;
-  background: #14181d;
-  color: #e6e9ed;
+  font-family: 'Nunito', system-ui, sans-serif;
+  background: linear-gradient(160deg, #040c1a 0%, #071e3d 25%, #0a3368 55%, #0a4a8a 80%, #085e9e 100%);
+  background-attachment: fixed;
+  color: #e8f6ff;
 }
