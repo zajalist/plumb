@@ -77,6 +77,17 @@ export default function App() {
     try { await commit(objId, pos) } finally { setBusy(false) }
   }, [objId, pos])
 
+  // material-confirm loop: re-bake the selected mesh with the confirmed per-part
+  // materials (now they drive physics) and lock them into the PAP.
+  const onConfirmMaterials = useCallback(async (materials: Record<string, string>) => {
+    if (!selected?.file) return
+    setBusy(true)
+    try {
+      const pap = await bake(selected.file, materials)
+      setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
+    } finally { setBusy(false) }
+  }, [selected])
+
   const inspector = selected?.status === 'ok' && objId
     ? <Inspector pos={pos} setPos={setPos} verdict={verdict} busy={busy}
         onValidate={onValidate} onRepair={onRepair} onCommit={onCommit} />
@@ -120,7 +131,8 @@ export default function App() {
         <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
         <Viewport file={selected?.file ?? null} name={selected?.name ?? ''}
           pap={selected?.pap ?? null} pos={pos} verdict={verdict} />
-        <Properties pap={selected?.pap ?? null} footer={inspector} />
+        <Properties pap={selected?.pap ?? null} footer={inspector}
+          onConfirm={onConfirmMaterials} busy={busy} />
       </div>
 
       <div className="nodeeditor">
