@@ -13,10 +13,11 @@ const SWATCH: Record<string, string> = {
 const MASK_PALETTE = ['#34C0AD', '#D9A84C', '#6E8BA0', '#E0694F', '#5FA38C', '#A088B0', '#C2925A', '#7C8AA0']
 const MATERIALS = ['default', 'wood', 'foliage', 'stone', 'metal', 'glass', 'plastic', 'fabric', 'bronze', 'water']
 
-export function Properties({ pap, footer, onConfirm, busy, declared }: {
+export function Properties({ pap, footer, onConfirm, onCloseMesh, busy, declared }: {
   pap: PAP | null
   footer?: ReactNode
   onConfirm?: (materials: Record<string, string>) => void
+  onCloseMesh?: () => void   // re-bake with hole-filling to close an open mesh
   busy?: boolean
   declared?: WdfAsset       // an asset declared by an opened .wdf (no bake yet)
 }) {
@@ -107,6 +108,18 @@ export function Properties({ pap, footer, onConfirm, busy, declared }: {
           <div className="prop"><span className="k"><Icon name="seal" />watertight</span><span className="v muted">{pap.geometry.watertight ? `yes · ${pap.geometry.convex_parts} parts` : `no · ${pap.geometry.convex_parts} parts`}</span></div>
           <div className="prop"><span className="k"><Icon name="solid" />hollow</span><span className="v muted">{pap.physical.hollow ? 'yes' : 'no'}</span></div>
         </div>
+        {!pap.geometry.watertight && (
+          <div className="wt-warn">
+            <span className="wt-ico">!</span>
+            <div className="wt-body">
+              <div className="wt-t">Mesh is not closed</div>
+              <div className="wt-d">Open surfaces — mass &amp; volume are <b>estimated</b>. Cap the openings to compute true values.</div>
+            </div>
+            {onCloseMesh && (
+              <button className="wt-cap" disabled={busy} onClick={onCloseMesh}>{busy ? 'Capping…' : 'Cap openings'}</button>
+            )}
+          </div>
+        )}
         <div className="psec">
           <div className="label" style={{ marginBottom: 4 }}>Physics</div>
           <div className="prop">

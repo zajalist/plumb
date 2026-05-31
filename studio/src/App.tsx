@@ -176,7 +176,18 @@ export default function App() {
     if (!selected?.file) return
     setBusy(true)
     try {
-      const pap = await bake(selected.file, { materials, profile: settings.profile })
+      const pap = await bake(selected.file, { materials, profile: settings.profile, extras: selected.extras })
+      setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
+    } finally { setBusy(false) }
+  }, [selected, settings])
+
+  // close-mesh: re-bake the selected mesh with hole-filling so open surfaces get capped
+  // and mass/volume become real (not estimated).
+  const onCloseMesh = useCallback(async () => {
+    if (!selected?.file) return
+    setBusy(true)
+    try {
+      const pap = await bake(selected.file, { cap: true, profile: settings.profile, extras: selected.extras })
       setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
     } finally { setBusy(false) }
   }, [selected, settings])
@@ -229,7 +240,7 @@ export default function App() {
           pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status}
           onDropFiles={onAddFiles} />
         <Properties pap={selected?.pap ?? null} footer={inspector}
-          onConfirm={onConfirmMaterials} busy={busy} declared={selected?.wdf} />
+          onConfirm={onConfirmMaterials} onCloseMesh={onCloseMesh} busy={busy} declared={selected?.wdf} />
       </div>
 
       <div

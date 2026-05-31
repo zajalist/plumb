@@ -47,6 +47,7 @@ def _bake(
     mesh_path: str,
     part_materials: dict | None,
     profile: str,
+    cap: bool = False,
 ) -> tuple[PAP, list[dict]]:
     """Shared bake: geometry + physical + per-part material masks.
 
@@ -60,7 +61,7 @@ def _bake(
     # material groups (trunk/branch/leaves), baked composition-aware. This also skips
     # CoACD where it would time out. Single-material meshes fall through to CoACD.
     if not part_materials:
-        grouped = bake_material_groups(mesh_path)
+        grouped = bake_material_groups(mesh_path, cap=cap)
         if grouped is not None:
             geometry, physical, masks = grouped
             materials = [MaterialPart(part=m["id"], mat=m["material"], conf=m["conf"]) for m in masks]
@@ -132,8 +133,10 @@ def bake_asset_detailed(
     mesh_path: str,
     part_materials: dict | None = None,
     profile: str = "rigid_prop",
+    cap: bool = False,
 ) -> tuple[PAP, list[dict]]:
     """Same as :func:`bake_asset` but also returns the per-part mask detail the
     studio renders (volume fraction, displayed material + confidence, mask colour,
-    hollowness). The detail is plain dicts — it lives outside the frozen contract."""
-    return _bake(asset_id, mesh_path, part_materials, profile)
+    hollowness). ``cap`` closes open meshes first so the volume is real, not estimated.
+    The detail is plain dicts — it lives outside the frozen contract."""
+    return _bake(asset_id, mesh_path, part_materials, profile, cap=cap)

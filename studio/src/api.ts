@@ -48,7 +48,7 @@ export async function health(): Promise<Health> {
   return r.json()
 }
 
-export type BakeOpts = { materials?: Record<string, string>; profile?: string; decimate?: number; extras?: File[] }
+export type BakeOpts = { materials?: Record<string, string>; profile?: string; decimate?: number; cap?: boolean; extras?: File[] }
 
 export async function bake(file: File, opts: BakeOpts = {}): Promise<PAP> {
   const fd = new FormData()
@@ -56,6 +56,7 @@ export async function bake(file: File, opts: BakeOpts = {}): Promise<PAP> {
   if (opts.materials) fd.append('materials', JSON.stringify(opts.materials))
   if (opts.profile) fd.append('profile', opts.profile)
   if (opts.decimate) fd.append('decimate', String(opts.decimate))
+  if (opts.cap) fd.append('cap', 'true')
   for (const e of opts.extras ?? []) fd.append('extras', e)
   const r = await fetch(`${BASE}/bake`, { method: 'POST', body: fd })
   if (!r.ok) {

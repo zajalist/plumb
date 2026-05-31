@@ -146,6 +146,7 @@ async def bake(
     materials: str | None = Form(None),
     profile: str = Form("rigid_prop"),
     decimate: int | None = Form(None),
+    cap: bool = Form(False),
     extras: list[UploadFile] = File(default=[]),
 ) -> dict:
     """Run the real composition bake on an uploaded mesh and return its PAP + masks.
@@ -213,7 +214,7 @@ async def bake(
     asset_id = fn.rsplit(".", 1)[0]
     part_materials = json.loads(materials) if materials else None
     try:
-        pap, parts = bake_asset_detailed(asset_id, path, part_materials=part_materials, profile=profile)
+        pap, parts = bake_asset_detailed(asset_id, path, part_materials=part_materials, profile=profile, cap=cap)
     except Exception as e:  # bad mesh / decomposition failure — surface, don't crash
         msg = str(e)
         if fn.lower().endswith(".gltf") and ("No such file" in msg or ".bin" in msg):
