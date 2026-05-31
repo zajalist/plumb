@@ -66,6 +66,18 @@ def _place(p: Placement):
     return tf
 
 
+def _persist_geometry(asset_id: str, mesh_path: str, parts: list[dict]) -> None:
+    """Park the converted mesh + convex parts on disk so mask providers can recompute
+    later (the in-memory PAP doesn't keep parts geometry). Best-effort — never fails a bake."""
+    try:
+        from cortex.masks import store
+
+        store.save_mesh(asset_id, mesh_path)
+        store.save_parts(asset_id, parts)
+    except Exception:
+        pass
+
+
 def _cortex_available() -> bool:
     try:
         import cortex.bake  # noqa: F401
@@ -75,13 +87,32 @@ def _cortex_available() -> bool:
         return False
 
 
+def _hf_status() -> dict:
+    """Whether the HF Inference-API mask providers can run (token present).
+
+    Kept inline (not via the providers package) so /health stays import-light — the
+    token resolution mirrors ``cortex/masks/providers/hf._hf_token``."""
+    import os
+    from pathlib import Path
+
+    tok = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
+    if not tok:
+        f = Path(__file__).resolve().parents[1] / ".hf_token"
+        try:
+            tok = f.read_text(encoding="utf-8").strip()
+        except OSError:
+            tok = ""
+    return {"available": bool(tok), "key": bool(tok)}
+
+
 @app.get("/health")
 def health() -> dict:
-    """Liveness + whether cortex, Unreal convert, and the Gemini semantic bake are wired."""
+    """Liveness + whether cortex, Unreal convert, Gemini, and HF masks are wired."""
     from studio.semantics import gemini_status
     from studio.uasset import ue_status
 
-    return {"ok": True, "cortex": _cortex_available(), "ue": ue_status(), "gemini": gemini_status()}
+    return {"ok": True, "cortex": _cortex_available(), "ue": ue_status(),
+            "gemini": gemini_status(), "hf": _hf_status()}
 
 
 @app.post("/semantics")
@@ -227,6 +258,7 @@ async def bake(
         raise HTTPException(status_code=422, detail=f"bake failed: {msg}") from e
 
     _ASSETS[asset_id] = pap
+    _persist_geometry(asset_id, path, parts)
     return {**pap.model_dump(), "parts": parts}
 
 
@@ -290,6 +322,7 @@ def bake_cached(b: CachedBake) -> dict:
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"bake failed: {e}") from e
     _ASSETS[asset_id] = pap
+    _persist_geometry(asset_id, path, parts)
     return {**pap.model_dump(), "parts": parts}
 
 
@@ -389,3 +422,64 @@ def commit(p: Placement) -> dict:
     """Commit the placement into the session world (UE5 dispatch is a later WP)."""
     _place(p)
     return {"ok": True, "object": p.object}
+
+
+# --------------------------------------------------------------------------- #
+# Masks (design 2026-05-31) — the extensible semantic-overlay system. The UI
+# reads/computes masks here; the cortex MCP server writes to the same on-disk
+# store, so agent-authored masks appear in the UI on the next GET /masks.
+# --------------------------------------------------------------------------- #
+@app.get("/masks/providers")
+def mask_providers() -> dict:
+    """Catalog metadata the rail renders from (key, source, archetype, role, available)."""
+    import cortex.masks as masks
+
+    masks.load_providers()
+    return {"providers": masks.catalog()}
+
+
+@app.get("/masks/{asset_id}")
+def get_masks(asset_id: str) -> dict:
+    """All masks currently stored for an asset (UI + agent contributions)."""
+    from cortex.masks import store
+
+    return {"masks": [m.model_dump() for m in store.list_masks(asset_id)]}
+
+
+@app.post("/masks/{asset_id}/compute")
+async def compute_mask(
+    asset_id: str,
+    provider_key: str = Form(...),
+    images: list[UploadFile] = File(default=[]),
+) -> dict:
+    """Run a mask provider for an asset, store the result, and return the Mask.
+
+    ``images`` (rendered PNGs) are required by HF/Gemini providers; geometry providers
+    ignore them. 404 unknown asset · 503 provider unavailable/needs key · 502 compute error.
+    """
+    import cortex.masks as masks
+    from cortex.masks import store
+    from cortex.masks.registry import Asset
+
+    masks.load_providers()
+    if asset_id not in _ASSETS:
+        raise HTTPException(status_code=404, detail=f"unknown asset {asset_id!r}; bake it first")
+    img_bytes = [await f.read() for f in images] if images else []
+    asset = Asset(asset_id, pap=_ASSETS[asset_id], parts=store.load_parts(asset_id), images=img_bytes)
+    try:
+        mask = masks.compute(asset, provider_key)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except (RuntimeError, ValueError) as e:
+        # unavailable provider / missing key / needs images → 503 (configuration), else 502
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"mask compute failed: {e}") from e
+    return mask.model_dump()
+
+
+@app.delete("/masks/{asset_id}/{mask_id}")
+def delete_mask(asset_id: str, mask_id: str) -> dict:
+    from cortex.masks import store
+
+    return {"ok": store.delete(asset_id, mask_id)}
