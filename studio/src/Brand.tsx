@@ -1,9 +1,9 @@
-// The PLUMB mark (the knotwork logo, served from /public) + wordmark.
+// The PLUMB mark (rosette logo, served from /public) + wordmark.
 export function Brand() {
   return (
     <div className="brand">
-      <img className="logomark" src="/logo.svg" alt="PLUMB" />
-      <span className="word">PLUMB</span>
+      <img className="logomark" src="/logo.svg" alt="Plumb" />
+      <span className="word">Plumb</span>
     </div>
   )
 }
