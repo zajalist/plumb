@@ -222,7 +222,9 @@ export default function App() {
       {wdf?.scene && <LawsBand scene={wdf.scene} />}
 
       <div className="row">
-        <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
+        <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport}
+          onDelete={(id) => { setAssets((a) => a.filter((x) => x.id !== id)); setSel((s) => (s === id ? null : s)) }}
+          onUpdate={(id, patch) => setAssets((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)))} />
         <Viewport name={selected?.name ?? ''} file={selected?.file} extras={selected?.extras}
           pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status}
           onDropFiles={onAddFiles} />
