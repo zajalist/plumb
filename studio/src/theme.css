@@ -106,7 +106,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .confirm svg{width:14px;height:14px}
 
 /* node editor */
-.nodeeditor{height:230px;flex:none;border-top:1px solid var(--line);display:flex;flex-direction:column;background:var(--bg)}
+.nodeeditor{height:300px;flex:none;border-top:1px solid var(--line);display:flex;flex-direction:column;background:var(--bg)}
 .nodeeditor>header{display:flex;align-items:center;gap:10px;height:34px;padding:0 15px;border-bottom:1px solid var(--line)}
 .nodeeditor>header svg{width:14px;height:14px;color:var(--ink3)}
 .nodeeditor>header .t{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);font-weight:500}

@@ -1,39 +1,85 @@
-/* Node-editor styling consumed by ConstraintGraph.tsx (Fara).
-   The app shell + tokens now live in theme.css; this file intentionally does NOT
-   redefine --line / --ink (they come from theme.css) so the graph adopts the
-   austere palette. Only node-editor-specific vars + rules remain here. */
-:root {
-  --chrome: #1c1b14;       /* node surface */
-  --ink-dim: #7c7868;      /* secondary node text (alias of theme --ink3) */
-  --blueprint: #8e9a60;    /* selection accent (sage) */
-}
+/* Node editor (Fara's editable constraint graph) — restyled to the PLUMB austere
+   theme. Consumes theme.css tokens; no neon, no glow, hairlines + Geist. */
 
-/* react-flow surface */
+/* the bottom block is a row: palette | graph | node-inspector */
+.nodeeditor .ne { display: flex; min-height: 0; }
+
+/* ── palette (left) ───────────────────────────────────────────── */
+.palette {
+  width: 168px; flex: none; overflow-y: auto;
+  border-right: 1px solid var(--line); background: var(--bg); padding: 10px;
+}
+.palette-head { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); font-weight: 500; }
+.palette-hint { font-size: 10px; color: var(--ink4); margin: 2px 0 10px; }
+.palette-cat { margin-bottom: 12px; }
+.palette-cat-head { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink4); display: flex; justify-content: space-between; margin-bottom: 6px; }
+.palette-cat-hint { color: var(--line2); text-transform: none; letter-spacing: 0; }
+.palette-item {
+  display: flex; flex-direction: column; gap: 1px; padding: 6px 9px; margin-bottom: 5px;
+  border: 1px solid var(--line); border-left: 2px solid var(--line2); border-radius: 5px;
+  background: var(--surface); cursor: grab; user-select: none;
+}
+.palette-item:hover { background: var(--surface2); border-left-color: var(--sage); }
+.palette-item:active { cursor: grabbing; }
+.palette-item-label { font-size: 12px; color: var(--ink); font-weight: 500; }
+.palette-item-sub { font-size: 10px; color: var(--ink4); font-family: var(--mono); }
+/* a quiet kind accent on the left edge */
+.palette-item.kind-asset { border-left-color: #8E9A60; }
+.palette-item.kind-measure { border-left-color: #7E8A9A; }
+.palette-item.kind-law { border-left-color: #A0879A; }
+.palette-item.kind-field { border-left-color: var(--ink3); }
+.palette-item.kind-verdict { border-left-color: #C2A24E; }
+
+/* ── canvas (center) ──────────────────────────────────────────── */
+.graph-main { flex: 1; display: flex; min-width: 0; }
+.canvas { flex: 1; position: relative; min-width: 0; }
 .react-flow { background: transparent; }
-.react-flow__handle { background: var(--ink-dim); border: none; width: 6px; height: 6px; }
-.react-flow__edge-path { stroke: #39362a; }
+.react-flow__edge-path { stroke: var(--line2); stroke-width: 1.4; }
+.react-flow__handle { width: 8px; height: 8px; border: 1px solid var(--bg); }
+.react-flow__handle:hover { filter: brightness(1.25); }
+.react-flow__controls { box-shadow: none; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.react-flow__controls-button { background: var(--surface); border-bottom: 1px solid var(--line); width: 22px; height: 22px; }
+.react-flow__controls-button:hover { background: var(--surface2); }
+.react-flow__controls-button svg { fill: var(--ink3); }
 
-/* nodes */
+/* ── nodes ────────────────────────────────────────────────────── */
 .node {
-  background: var(--chrome);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 8px 11px;
-  min-width: 130px;
-  color: var(--ink);
-  font-size: 12px;
+  background: var(--surface2); border: 1px solid var(--line2); border-radius: 7px;
+  padding: 8px 11px; min-width: 132px; color: var(--ink); font-size: 12px;
 }
-.node-title { font-weight: 600; }
-.node-sub { color: var(--ink-dim); font-size: 11px; margin-top: 2px; }
-.node-op { opacity: 0.92; }
-.node-gate { border-width: 1.5px; }
+.node-title { font-weight: 500; font-size: 12.5px; color: var(--ink); }
+.node-sub { color: var(--ink3); font-size: 10.5px; margin-top: 2px; font-family: var(--mono); }
+.node-measure-val { font-family: var(--mono); font-size: 13px; color: var(--ink); margin-top: 5px; }
 .node-gate-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.node-headline { font-weight: 700; font-size: 15px; margin-top: 3px; }
-.pill {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  color: #16150f;
-  padding: 1px 6px;
-  border-radius: 999px;
+.node-headline { font-family: var(--mono); font-weight: 600; font-size: 13px; margin-top: 4px; }
+.soft-tag { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink4); font-weight: 600; }
+.pill { font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: .06em; color: #16150F; padding: 2px 7px; border-radius: 4px; }
+/* quiet kind accents */
+.node-asset { border-left: 2px solid #8E9A60; }
+.node-measure { border-left: 2px solid #7E8A9A; }
+.node-field { border-left: 2px solid var(--ink3); }
+/* .node-law / .node-verdict take their border color inline from STATUS_COLOR */
+
+/* ── node inspector (right) ───────────────────────────────────── */
+.inspector {
+  width: 216px; flex: none; overflow-y: auto;
+  border-left: 1px solid var(--line); background: var(--bg); padding: 12px 14px;
 }
+.inspector-empty { color: var(--ink4); font-size: 12px; padding-top: 8px; }
+.inspector-kind { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink4); }
+.inspector-title { font-size: 14px; color: var(--ink); font-weight: 600; margin-top: 3px; }
+.inspector-sub { font-size: 11px; color: var(--ink3); margin-top: 2px; font-family: var(--mono); }
+.inspector-section { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+.inspector-h { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink4); margin-bottom: 7px; }
+.inspector-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--ink2); padding: 3px 0; }
+.inspector-key { color: var(--ink3); }
+.inspector-detail { font-size: 11px; color: var(--ink3); font-family: var(--mono); margin-top: 4px; }
+.inspector-foot { font-family: var(--mono); font-size: 10px; color: var(--ink4); margin-top: 14px; }
+.port-chip { font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 4px; }
+.inspector .knob { width: 100%; accent-color: var(--sage); margin: 4px 0; }
+.knob-val { font-family: var(--mono); font-size: 12px; color: var(--ink2); }
+.inspector-delete {
+  width: 100%; height: 30px; border: 1px solid var(--line2); border-radius: 6px;
+  background: var(--surface); color: var(--ink3); font-family: var(--sans); font-size: 12px; cursor: pointer;
+}
+.inspector-delete:hover { border-color: var(--fail); color: var(--fail); }

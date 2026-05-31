@@ -6,9 +6,11 @@ import { Viewport } from './Viewport'
 import { Properties } from './Properties'
 import { Inspector } from './Inspector'
 import { GateStack } from './GateStack'
-import ConstraintGraph from './ConstraintGraph' // Fara's — unchanged
+import { ReactFlowProvider } from '@xyflow/react'
+import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
+import Palette from './components/Palette'
+import { INITIAL_SCENE, type SceneState } from './lib/engine'
 import { bake, validate, repair, commit, type Verdict } from './api'
-import { attempts } from './verdicts'
 import './App.css'
 
 export default function App() {
@@ -20,6 +22,10 @@ export default function App() {
   const [pos, setPos] = useState<number[]>([0, 0, 0.4])
   const [verdict, setVerdict] = useState<Verdict | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // node-editor scene (Fara's editable constraint graph; its own live "knob")
+  const [scene, setScene] = useState<SceneState>(INITIAL_SCENE)
+  const setBronzeX = useCallback((x: number) => setScene((s) => ({ ...s, bronzeX: x })), [])
 
   // reset the loop when the selected asset changes
   useEffect(() => { setPos([0, 0, 0.4]); setVerdict(null) }, [sel])
@@ -104,7 +110,10 @@ export default function App() {
           <Icon name="reach" /><span className="t">Node editor</span><span className="who">Fara</span>
         </header>
         <div className="ne">
-          <ConstraintGraph attempt={attempts[0]} />
+          <ReactFlowProvider>
+            <Palette />
+            <ConstraintGraph scene={scene} setBronzeX={setBronzeX} />
+          </ReactFlowProvider>
         </div>
       </div>
     </div>
