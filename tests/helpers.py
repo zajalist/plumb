@@ -29,15 +29,15 @@ def make_box(extents=(1.0, 1.0, 1.0), center=(0.0, 0.0, 0.0)) -> trimesh.Trimesh
 def two_part_topheavy() -> tuple[list[trimesh.Trimesh], dict[str, str]]:
     """
     A heavy small 'body' sitting high on a light wide 'base' — the canonical
-    top-heavy fixture. Returns ([base, body], {part_index_or_name: material}).
+    top-heavy fixture. Returns ([base, body], {part_name: material}).
 
     Density-weighted CoM must sit ABOVE the naive geometric centroid because the
     bronze body is up top. That property is the proof the composition bake is real.
     """
-    base = make_box(extents=(0.4, 0.4, 0.2), center=(0.0, 0.0, 0.1))   # wide, low, stone
-    body = make_box(extents=(0.1, 0.1, 0.6), center=(0.0, 0.0, 0.5))   # narrow, high, bronze
+    base = make_box(extents=(0.4, 0.4, 0.2), center=(0.0, 0.0, 0.1))
+    body = make_box(extents=(0.1, 0.1, 0.6), center=(0.0, 0.0, 0.5))
     parts = [base, body]
-    materials = {"base": "stone", "body": "bronze"}  # by name; map index->name as needed
+    materials = {"base": "stone", "body": "bronze"}
     return parts, materials
 
 
@@ -52,7 +52,6 @@ def hollow_shell(outer=0.5, wall=0.05) -> trimesh.Trimesh:
             return shell
     except Exception:
         pass
-    # Fallback if no boolean engine: return the outer box (callers should skip-if-solid).
     return outer_box
 
 
@@ -74,15 +73,11 @@ def tmp_path(suffix: str) -> str:
     return f.name
 
 
-# Illustrative UE5 Remote Control response for ONE tagged actor.
-# UE5 space: left-handed, Z-up, centimetres. The adapter must convert to canonical
-# (right-handed, metres). Shape is representative — the bridge task may refine it,
-# but the mock server should serve something like this so parsing is exercised.
 def mock_ue5_actor(
     actor_id: str = "/Game/Maps/Gallery.Gallery:PersistentLevel.BronzeFigure_3",
-    location_cm=(-100.0, 200.0, 300.0),     # UE5 cm, LH
-    rotation_quat=(0.0, 0.0, 0.0, 1.0),     # [x, y, z, w]
-    extent_cm=(15.0, 15.0, 75.0),           # half-extents in cm
+    location_cm=(-100.0, 200.0, 300.0),
+    rotation_quat=(0.0, 0.0, 0.0, 1.0),
+    extent_cm=(15.0, 15.0, 75.0),
 ) -> dict:
     return {
         "actorId": actor_id,

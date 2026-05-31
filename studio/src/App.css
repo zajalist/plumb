@@ -42,6 +42,10 @@
 .react-flow__edge-path { stroke: var(--line2); stroke-width: 1.4; }
 .react-flow__edge.selected .react-flow__edge-path,
 .react-flow__edge:hover .react-flow__edge-path { stroke: var(--sage); }
+/* box-select + multi-select (teal, overriding React-Flow's default blue) */
+.react-flow__selection,
+.react-flow__nodesselection-rect { background: rgba(52, 192, 173, 0.08); border: 1px dashed var(--sage); }
+.react-flow__node.selected { outline: 1px solid var(--sage); outline-offset: 3px; border-radius: 8px; }
 .react-flow__handle { width: 8px; height: 8px; border: 1px solid var(--bg); background: var(--ink3); }
 .react-flow__handle:hover { background: var(--sage); }
 .react-flow__controls { box-shadow: none; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }

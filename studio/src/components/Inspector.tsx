@@ -1,6 +1,17 @@
 import type { Node } from '@xyflow/react'
-import { BRONZE_X_MIN, BRONZE_X_MAX, type NodeResult, type PlumbData, type PortType } from '../lib/engine'
+import { BRONZE_X_MIN, BRONZE_X_MAX, type NodeKind, type NodeResult, type PlumbData, type PortType } from '../lib/engine'
 import { STATUS_COLOR, PORT_COLOR, KIND_LABEL } from '../lib/theme'
+
+/** A selected wire, resolved to the endpoints + the port type it carries. */
+export type EdgeInfo = {
+  id: string
+  source: { label: string; kind: NodeKind }
+  target: { label: string; kind: NodeKind }
+  type?: PortType
+}
+
+/** One entry in a multi-node selection (name + kind, for the list view). */
+export type SelectedNode = { id: string; label: string; kind: NodeKind }
 
 function PortChip({ t }: { t: PortType }) {
   return (
@@ -10,29 +21,119 @@ function PortChip({ t }: { t: PortType }) {
   )
 }
 
+/** The inspector for a selected wire: the two nodes it joins and its carried type. */
+function EdgeInspector({ edge, onDelete }: { edge: EdgeInfo; onDelete: (id: string) => void }) {
+  return (
+    <aside className="inspector">
+      <div className="inspector-kind">Wire · connection</div>
+      <div className="inspector-title">
+        {edge.source.label} → {edge.target.label}
+      </div>
+
+      <div className="inspector-section">
+        <div className="inspector-h">Carries</div>
+        <div className="inspector-row">
+          <span className="inspector-key">type</span>
+          <span>{edge.type ? <PortChip t={edge.type} /> : <em>untyped</em>}</span>
+        </div>
+      </div>
+
+      <div className="inspector-section">
+        <div className="inspector-h">Connects</div>
+        <div className="inspector-row">
+          <span className="inspector-key">from</span>
+          <span>
+            {edge.source.label} <em>· {KIND_LABEL[edge.source.kind] ?? edge.source.kind}</em>
+          </span>
+        </div>
+        <div className="inspector-row">
+          <span className="inspector-key">to</span>
+          <span>
+            {edge.target.label} <em>· {KIND_LABEL[edge.target.kind] ?? edge.target.kind}</em>
+          </span>
+        </div>
+      </div>
+
+      <div className="inspector-section">
+        <button className="inspector-delete" onClick={() => onDelete(edge.id)}>
+          Delete wire
+        </button>
+      </div>
+
+      <div className="inspector-foot">id · {edge.id}</div>
+    </aside>
+  )
+}
+
+/** The inspector for a multi-node selection: the names + a bulk delete. */
+function MultiInspector({
+  selected,
+  onDeleteMany,
+}: {
+  selected: SelectedNode[]
+  onDeleteMany: (ids: string[]) => void
+}) {
+  return (
+    <aside className="inspector">
+      <div className="inspector-kind">Selection</div>
+      <div className="inspector-title">{selected.length} nodes selected</div>
+
+      <div className="inspector-section">
+        <div className="inspector-h">Nodes</div>
+        {selected.map((s) => (
+          <div className="inspector-row" key={s.id}>
+            <span>{s.label}</span>
+            <em>{KIND_LABEL[s.kind] ?? s.kind}</em>
+          </div>
+        ))}
+      </div>
+
+      <div className="inspector-section">
+        <button className="inspector-delete" onClick={() => onDeleteMany(selected.map((s) => s.id))}>
+          Delete {selected.length} nodes
+        </button>
+      </div>
+    </aside>
+  )
+}
+
 /**
  * The right-hand inspector: shows the selected node's identity, typed ports,
- * what feeds it, and its live evaluation. Empty state prompts a selection.
+ * what feeds it, and its live evaluation. With many nodes selected it lists
+ * them; with a wire selected it describes the connection. Empty state prompts.
  */
 export default function Inspector({
   node,
+  edge,
+  selected,
   result,
   incoming,
   bronzeX,
   setBronzeX,
   onDelete,
+  onDeleteEdge,
+  onDeleteMany,
 }: {
   node: Node<PlumbData> | null
+  edge?: EdgeInfo | null
+  selected?: SelectedNode[]
   result?: NodeResult
   incoming: { label: string; type?: PortType }[]
   bronzeX: number
   setBronzeX: (x: number) => void
   onDelete: (id: string) => void
+  onDeleteEdge: (id: string) => void
+  onDeleteMany: (ids: string[]) => void
 }) {
+  // Many nodes → list them; one node → details; a wire → connection; else prompt.
+  if (selected && selected.length > 1) {
+    return <MultiInspector selected={selected} onDeleteMany={onDeleteMany} />
+  }
   if (!node) {
+    if (edge) return <EdgeInspector edge={edge} onDelete={onDeleteEdge} />
     return (
       <aside className="inspector">
-        <div className="inspector-empty">Select a node to inspect its data.</div>
+        <div className="inspector-empty">Select a node or wire to inspect it.</div>
       </aside>
     )
   }

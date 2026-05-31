@@ -55,10 +55,30 @@ export default function App() {
   const [pos, setPos] = useState<number[]>([0, 0, 0.4])
   const [verdict, setVerdict] = useState<Verdict | null>(null)
   const [busy, setBusy] = useState(false)
+  const [nodeH, setNodeH] = useState(300)
 
   // node-editor scene (Fara's editable constraint graph; its own live "knob")
   const [scene, setScene] = useState<SceneState>(INITIAL_SCENE)
   const setBronzeX = useCallback((x: number) => setScene((s) => ({ ...s, bronzeX: x })), [])
+
+  const startResize = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    const handle = e.currentTarget as HTMLElement
+    handle.setPointerCapture(e.pointerId)
+    const onMove = (ev: PointerEvent) => {
+      const h = window.innerHeight - ev.clientY
+      setNodeH(Math.min(window.innerHeight - 180, Math.max(180, h)))
+    }
+    const onUp = (ev: PointerEvent) => {
+      handle.releasePointerCapture(ev.pointerId)
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onUp)
+      document.body.style.userSelect = ''
+    }
+    document.body.style.userSelect = 'none'
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onUp)
+  }, [])
 
   // reset the loop when the selected asset changes
   useEffect(() => { setPos([0, 0, 0.4]); setVerdict(null) }, [sel])
@@ -219,7 +239,15 @@ export default function App() {
           onConfirm={onConfirmMaterials} busy={busy} declared={selected?.wdf} />
       </div>
 
-      <div className="nodeeditor">
+      <div
+        className="resize-handle"
+        onPointerDown={startResize}
+        role="separator"
+        aria-orientation="horizontal"
+        title="Drag to resize the node editor"
+      />
+
+      <div className="nodeeditor" style={{ height: nodeH }}>
         <header>
           <Icon name="reach" /><span className="t">Node editor</span><span className="who">Fara</span>
         </header>
