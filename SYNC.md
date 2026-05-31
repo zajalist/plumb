@@ -109,20 +109,21 @@ Don't rip out `engine.ts` mid-build. Source the **list** from the real store fir
   node and **mass + CoM** in an inspector *Baked · PAP* section. **Remaining:** live
   `comOverFootprint` *margin* — needs the backend `/validate` (no client-side physics), so it
   folds into P4.
-- **P3 · Behaviour authoring (Layer A) — ☐ TODO (large; WP-6 + WP-8).** Needs: a backend endpoint
-  for the door swept-volume (`cortex.bake_profiles.door.swept_volume` exists; no HTTP route yet),
-  a Viewport overlay mesh for the wedge, and an inspector "Articulation" UI (opening angles).
-  Placement distribution (sampling/`buried⚙`) is a further block. **Blocked on O1** (inspector vs
-  separate Asset Studio view).
-- **P4 · Live verdict — ☐ TODO (large; Integration #1).** Swap the node editor's `engine.ts`
-  stand-in for real `/validate` calls so Measures/Laws/Verdict show backend truth and animate
-  (§11). This is async, needs a placement model, maps gate results → law nodes, and changes the
-  live bronzeX-knob demo — so it deserves its own focused pass, not a rushed bolt-on.
+- **P3 · Articulation (WP-6) — ✅ DONE (`2422b59`).** Backend `POST /swept` runs the real
+  `cortex.bake_profiles.door.swept_volume` and returns the keep-clear wedge (verts/faces). The
+  Inspector has an **Articulation** door-swing slider (0–180°); changing it fetches the real
+  wedge and the Viewport renders it as a translucent keep-clear overlay. O1 resolved → control
+  lives in the Inspector (next to the viewport that shows the wedge). Placement distribution
+  (sampling/`buried⚙`, WP-8) remains a further block.
+- **P4 · Live verdict — ✅ DONE (`b4d66b6`).** When a real `/validate` Verdict is present, the node
+  editor overlays its gate truth onto the matching measure/law/verdict nodes
+  (stability→stable/comOverFootprint, collision→noClip/clearance, reach→walkway/pathWidth,
+  constraints→facing/doorClear). No verdict → `engine.ts` still drives the bronze-knob demo, so
+  the offline beat is intact. (Also satisfies P2's deferred real margin.)
 
-> **Why P3/P4 weren't auto-completed:** both are sizeable backend-integration features that would
-> touch the working, committed demo and (P3) depend on the still-open O1 decision. Per the
-> project's own rule — "submit the latest clean milestone, not the most code" — they're left as
-> clean, well-scoped next steps rather than a risky half-build.
+> **Sequencing note:** `origin/node-editor` was merged first (`550fec2`) so P3/P4 built on the
+> latest Viewport + server, avoiding rework. P3's placement-distribution half (WP-8) is the one
+> remaining large piece.
 
 ---
 
