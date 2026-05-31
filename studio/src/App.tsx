@@ -205,7 +205,7 @@ export default function App() {
       <div className="row">
         <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
         <Viewport name={selected?.name ?? ''}
-          pap={selected?.pap ?? null} pos={pos} verdict={verdict} />
+          pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status} />
         <Properties pap={selected?.pap ?? null} footer={inspector}
           onConfirm={onConfirmMaterials} busy={busy} declared={selected?.wdf} />
       </div>
