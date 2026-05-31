@@ -23,64 +23,182 @@ from cortex.bake.materials import MASK_PALETTE
 
 __all__ = ["bake_material_groups", "material_density"]
 
-# Density (kg/m³) by material-name keyword — honest, name-driven priors.
+# (keywords, bucket, density kg/m³, is_shell). ``is_shell`` materials are modelled as
+# thin surfaces (leaf cards, cloth) — their mass is area × a few-mm thickness, not the
+# convex-hull volume, which would absurdly dominate (a tree is wood, not leaves).
 _DENSITY = [
-    (("leaf", "leaves", "foliage", "frond", "needle", "bush"), "foliage", 250.0),
-    (("trunk", "branch", "bark", "wood", "log", "timber", "plank", "oak", "pine"), "wood", 700.0),
-    (("metal", "steel", "iron", "bronze", "brass", "alumin", "copper", "chrome"), "metal", 7800.0),
-    (("stone", "rock", "granite", "marble", "concrete", "brick", "ceramic"), "stone", 2500.0),
-    (("glass", "crystal", "window"), "glass", 2500.0),
-    (("plastic", "resin", "rubber", "vinyl"), "plastic", 1100.0),
-    (("cloth", "fabric", "leather", "canvas", "cushion", "carpet"), "fabric", 400.0),
-    (("water", "liquid"), "water", 1000.0),
+    (("leaf", "leaves", "foliage", "frond", "needle", "bush"), "foliage", 500.0, True),
+    (("trunk", "branch", "bark", "wood", "log", "timber", "plank", "oak", "pine"), "wood", 700.0, False),
+    (("metal", "steel", "iron", "bronze", "brass", "alumin", "copper", "chrome"), "metal", 7800.0, False),
+    (("stone", "rock", "granite", "marble", "concrete", "brick", "ceramic"), "stone", 2500.0, False),
+    (("glass", "crystal", "window"), "glass", 2500.0, False),
+    (("plastic", "resin", "rubber", "vinyl"), "plastic", 1100.0, False),
+    (("cloth", "fabric", "leather", "canvas", "cushion", "carpet", "curtain"), "fabric", 400.0, True),
+    (("water", "liquid"), "water", 1000.0, False),
 ]
+_SHELL_THICKNESS_M = 0.003  # 3 mm — leaf-card / cloth thickness for shell mass
+_SOLID_WALL_M = 0.02        # 2 cm — effective wall for open tubular solids (twigs, trunks)
+
+
+def _material_info(name: str | None) -> tuple[str, float, bool]:
+    """Map a material name to ``(bucket, density, is_shell)``; ``("default", 1000, False)``."""
+    n = (name or "").lower()
+    for keys, mat, rho, shell in _DENSITY:
+        if any(k in n for k in keys):
+            return mat, rho, shell
+    return "default", 1000.0, False
 
 
 def material_density(name: str | None) -> tuple[str, float]:
-    """Map a material name to a (bucket, density) prior; ``("default", 1000)`` if unknown."""
-    n = (name or "").lower()
-    for keys, mat, rho in _DENSITY:
-        if any(k in n for k in keys):
-            return mat, rho
-    return "default", 1000.0
+    """``(bucket, density)`` for a material name (back-compat helper)."""
+    mat, rho, _ = _material_info(name)
+    return mat, rho
 
 
 def _load_groups(mesh_path: str) -> list[tuple[str, trimesh.Trimesh]]:
-    """``[(material_name, geometry), …]`` for a multi-material scene, else ``[]``."""
+    """``[(material_name, geometry), …]`` for a multi-material scene, else ``[]``.
+
+    Each geometry is returned with its scene-graph node transform **baked into the
+    vertices** (scene frame), so groups share one coordinate frame — the same frame the
+    studio derives from the loaded model's local matrix (which lets the manual cap plane
+    land on the right opening), and the correct frame for composite CoM/inertia.
+    """
     loaded = trimesh.load(mesh_path, process=False)
     if not isinstance(loaded, trimesh.Scene):
         return []
     groups: list[tuple[str, trimesh.Trimesh]] = []
-    for gname, geo in loaded.geometry.items():
-        if not isinstance(geo, trimesh.Trimesh) or len(geo.faces) == 0:
-            continue
-        mat = getattr(getattr(geo, "visual", None), "material", None)
-        name = getattr(mat, "name", None) or gname
-        groups.append((str(name), geo))
+    try:
+        nodes = list(loaded.graph.nodes_geometry)
+    except Exception:
+        nodes = []
+    if nodes:
+        for node in nodes:
+            try:
+                transform, gname = loaded.graph[node]
+            except Exception:
+                continue
+            geo = loaded.geometry.get(gname)
+            if not isinstance(geo, trimesh.Trimesh) or len(geo.faces) == 0:
+                continue
+            g = geo.copy()
+            try:
+                g.apply_transform(transform)
+            except Exception:
+                pass
+            mat = getattr(getattr(g, "visual", None), "material", None)
+            name = getattr(mat, "name", None) or gname
+            groups.append((str(name), g))
+    else:  # no graph instancing info — fall back to the raw geometries
+        for gname, geo in loaded.geometry.items():
+            if not isinstance(geo, trimesh.Trimesh) or len(geo.faces) == 0:
+                continue
+            mat = getattr(getattr(geo, "visual", None), "material", None)
+            name = getattr(mat, "name", None) or gname
+            groups.append((str(name), geo))
     return groups if len(groups) >= 2 else []
 
 
-def _group_volume(geo: trimesh.Trimesh) -> float:
-    """Watertight volume, else a convex-hull estimate (open surfaces like leaf cards)."""
+def _group_volume(geo: trimesh.Trimesh, is_shell: bool) -> float:
+    """Volume (m³) for a group.
+
+    A closed watertight solid → its real enclosed volume. But game meshes are open
+    surfaces with ``geo.volume == 0`` (leaf cards, tube-shell trunks/branches), where the
+    convex hull wildly overestimates (a tree's branches hull is the whole canopy → tons).
+    So a non-watertight group is treated as a surface of an effective wall thickness:
+    a few mm for true shells (foliage/cloth), ~2 cm for tubular solids (wood) — giving
+    plausible mass instead of a canopy-sized blob.
+    """
     try:
-        if geo.is_watertight and abs(geo.volume) > 1e-9:
+        if not is_shell and geo.is_watertight and abs(geo.volume) > 1e-9:
             return float(abs(geo.volume))
     except Exception:
         pass
     try:
-        return float(abs(geo.convex_hull.volume)) * 0.25
+        thickness = _SHELL_THICKNESS_M if is_shell else _SOLID_WALL_M
+        return float(geo.area) * thickness
     except Exception:
         ext = geo.bounding_box.extents
         return float(ext[0] * ext[1] * ext[2]) * 0.1
 
 
-def bake_material_groups(mesh_path: str):
+def _unit_scale(combined: trimesh.Trimesh) -> float:
+    """Detect a scale to bring an off-unit model (cm/mm) into plausible metres.
+
+    glTF/FBX asset packs vary (cm is common). If the largest dimension already sits in
+    a plausible prop range we leave it; otherwise we try the standard unit factors and
+    pick the one that lands it in range. Conservative: returns 1.0 if nothing fits.
+    """
+    try:
+        d = float(max(combined.bounding_box.extents))
+    except Exception:
+        return 1.0
+    if d <= 0 or 0.02 <= d <= 25.0:
+        return 1.0
+    for s in (0.01, 0.001, 0.0001, 10.0, 100.0):
+        if 0.02 <= d * s <= 25.0:
+            return s
+    return 1.0
+
+
+def _group_com(geo: trimesh.Trimesh) -> np.ndarray:
+    """Robust centre of mass. ``geo.center_mass`` needs a watertight volume — for the
+    open shells in game meshes (leaf cards, single-sided trunks) it returns garbage and
+    skews the whole composite CoM. Fall back to the **area-weighted centroid** (the mass
+    centre of a uniform surface), then the vertex centroid."""
+    try:
+        if geo.is_watertight and abs(geo.volume) > 1e-9:
+            return np.asarray(geo.center_mass, dtype=float)
+    except Exception:
+        pass
+    try:
+        tc = np.asarray(geo.triangles_center, dtype=float)
+        a = np.asarray(geo.area_faces, dtype=float)
+        if a.sum() > 1e-12:
+            return (tc * a[:, None]).sum(axis=0) / a.sum()
+    except Exception:
+        pass
+    return np.asarray(geo.centroid, dtype=float)
+
+
+def _group_inertia(geo: trimesh.Trimesh, mass: float) -> np.ndarray:
+    """Own inertia tensor about the group's CoM. Watertight → real tensor at our mass;
+    otherwise a uniform-box approximation from the bbox (never garbage/NaN)."""
+    try:
+        if geo.is_watertight and abs(geo.volume) > 1e-9:
+            geo.density = mass / float(abs(geo.volume))
+            return np.asarray(geo.moment_inertia, dtype=float)
+    except Exception:
+        pass
+    x, y, z = (float(e) for e in geo.bounding_box.extents)
+    return (mass / 12.0) * np.diag([y * y + z * z, x * x + z * z, x * x + y * y])
+
+
+def _close_group(geo: trimesh.Trimesh) -> None:
+    """Best-effort close a mesh in place — weld seams, drop degenerate faces, then
+    ``fill_holes`` (which triangulates the open boundary loops, i.e. caps the openings
+    with planar fills) and fix winding. If it becomes watertight the bake uses its real
+    enclosed volume instead of the wall estimate."""
+    for step in (
+        lambda: geo.merge_vertices(),
+        lambda: geo.update_faces(geo.nondegenerate_faces()),
+        lambda: trimesh.repair.fill_holes(geo),
+        lambda: trimesh.repair.fix_normals(geo),
+    ):
+        try:
+            step()
+        except Exception:
+            pass
+
+
+def bake_material_groups(mesh_path: str, cap: bool = False, cap_plane: dict | None = None):
     """Bake material-group masks for a multi-material mesh, or ``None`` to fall back.
 
     Returns ``(Geometry, Physical, masks)`` where ``masks`` is one dict per material
     group (id = material name, density-bucket material, volume/mass + fractions, mask
-    colour). Physics is composition-aware over the groups. No per-part vertices — the
-    viewport renders the real model client-side.
+    colour). Physics is composition-aware over the groups. ``cap_plane`` (origin / normal
+    / half / depth in the mesh's native frame) closes only the openings a user's manual
+    plane covers; ``cap`` (no plane) auto-fills every hole. Either makes the volume real,
+    not estimated. No per-part vertices — the viewport renders the real model client-side.
     """
     try:
         groups = _load_groups(mesh_path)
@@ -89,11 +207,38 @@ def bake_material_groups(mesh_path: str):
     if not groups:
         return None
 
+    if cap_plane:
+        from cortex.bake.cap import cap_with_plane
+
+        capped: list[tuple[str, trimesh.Trimesh]] = []
+        for name, g in groups:
+            try:
+                g2, _n = cap_with_plane(
+                    g,
+                    cap_plane.get("origin", [0.0, 0.0, 0.0]),
+                    cap_plane.get("normal", [0.0, 0.0, 1.0]),
+                    cap_plane.get("half", 1.0),
+                    cap_plane.get("depth", 1.0),
+                )
+                capped.append((name, g2))
+            except Exception:
+                capped.append((name, g))
+        groups = capped
+    elif cap:
+        for _, g in groups:
+            _close_group(g)
+
+    # Normalise off-unit models (cm/mm) to metres so mass/CoM read true.
+    scale = _unit_scale(trimesh.util.concatenate([g for _, g in groups]))
+    if scale != 1.0:
+        for _, g in groups:
+            g.apply_scale(scale)
     combined = trimesh.util.concatenate([g for _, g in groups])
-    vols = [_group_volume(g) for _, g in groups]
-    buckets = [material_density(n) for n, _ in groups]
-    masses = [v * rho for v, (_, rho) in zip(vols, buckets)]
-    coms = [np.asarray(g.center_mass, dtype=float) for _, g in groups]
+
+    infos = [_material_info(n) for n, _ in groups]
+    vols = [_group_volume(g, info[2]) for (_, g), info in zip(groups, infos)]
+    masses = [v * info[1] for v, info in zip(vols, infos)]
+    coms = [_group_com(g) for _, g in groups]
 
     total_mass = float(sum(masses)) or 1e-9
     com = np.zeros(3)
@@ -102,12 +247,8 @@ def bake_material_groups(mesh_path: str):
     com /= total_mass
 
     inertia = np.zeros((3, 3))
-    for (_, g), (_, rho), m, c in zip(groups, buckets, masses, coms):
-        try:
-            g.density = rho
-            ip = np.asarray(g.moment_inertia, dtype=float)
-        except Exception:
-            ip = np.zeros((3, 3))
+    for (_, g), m, c in zip(groups, masses, coms):
+        ip = _group_inertia(g, m)
         r = com - c
         inertia += ip + m * (float(np.dot(r, r)) * np.eye(3) - np.outer(r, r))
     inertia = 0.5 * (inertia + inertia.T)
@@ -129,7 +270,7 @@ def bake_material_groups(mesh_path: str):
 
     total_v = float(sum(vols)) or 1e-9
     masks = []
-    for i, ((name, g), v, (mat, _rho), m) in enumerate(zip(groups, vols, buckets, masses)):
+    for i, ((name, g), v, (mat, _rho, _shell), m, c) in enumerate(zip(groups, vols, infos, masses, coms)):
         masks.append({
             "id": name,
             "idx": i,
@@ -142,7 +283,7 @@ def bake_material_groups(mesh_path: str):
             "mass_kg": m,
             "mass_frac": m / total_mass,
             "hollow": bool(not g.is_watertight),
-            "centroid": [float(x) for x in g.center_mass],
+            "centroid": [float(x) for x in c],
             "extent": [float(e) / 2.0 for e in g.bounding_box.extents],
             "color": MASK_PALETTE[i % len(MASK_PALETTE)],
         })

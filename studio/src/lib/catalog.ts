@@ -37,7 +37,10 @@ export type NodeDef = {
 
 // ── Every node type, defined once ────────────────────────────────────────────
 export const NODE_DEFS: NodeDef[] = [
-  // Assets (nouns) — the bronze figure's knob is the scene's live value.
+  // Assets (nouns). The generic `object` is the abstract default; binding it to a
+  // real imported asset is the P1 sync. The named demo assets keep the Gallery
+  // beat (bronze_figure's knob is the scene's live value).
+  { op: 'object', kind: 'asset', label: 'object', sub: 'unbound', provides: 'object', evaluate: () => ({ value: 0 }) },
   { op: 'bronze_figure', kind: 'asset', label: 'bronze_figure_03', sub: 'top-heavy', provides: 'object', control: 'bronzeX', evaluate: ({ scene }) => ({ value: scene.bronzeX }) },
   { op: 'oak_door', kind: 'asset', label: 'oak_door', sub: 'articulated · swept', provides: 'object', evaluate: () => ({ value: 0 }) },
   { op: 'glass_vase', kind: 'asset', label: 'glass_vase', sub: 'fragile · hollow', provides: 'object', evaluate: () => ({ value: 0 }) },
@@ -153,6 +156,37 @@ const KIND_META: Record<string, { title: string; hint: string }> = {
 export const CATALOG: PaletteCategory[] = (['asset', 'measure', 'law', 'field'] as const).map(
   (k) => ({ title: KIND_META[k].title, hint: KIND_META[k].hint, items: NODE_DEFS.filter((d) => d.kind === k) }),
 )
+
+// ── Abstract palette (P0) ─────────────────────────────────────────────────────
+// One *general* node per kind; the specific op is chosen in the inspector. This
+// is the "abstract the node, specifics in the inspector" decision (SYNC.md D2).
+export type AbstractItem = { kind: NodeKind; label: string; hint: string }
+
+export const ABSTRACT_PALETTE: AbstractItem[] = [
+  { kind: 'asset', label: 'Object', hint: 'noun · pick in inspector' },
+  { kind: 'measure', label: 'Measure', hint: 'reads the world' },
+  { kind: 'law', label: 'Law', hint: 'must hold' },
+  { kind: 'field', label: 'Field', hint: 'context' },
+  { kind: 'verdict', label: 'Verdict', hint: 'roll-up' },
+]
+
+/** Every concrete op of a given kind — the inspector's Type dropdown reads this. */
+export const OPS_BY_KIND: Record<NodeKind, NodeDef[]> = {
+  asset: NODE_DEFS.filter((d) => d.kind === 'asset'),
+  measure: NODE_DEFS.filter((d) => d.kind === 'measure'),
+  law: NODE_DEFS.filter((d) => d.kind === 'law'),
+  field: NODE_DEFS.filter((d) => d.kind === 'field'),
+  verdict: NODE_DEFS.filter((d) => d.kind === 'verdict'),
+}
+
+/** The op a freshly dragged abstract node starts as (first of its kind). */
+export const DEFAULT_OP_BY_KIND: Record<NodeKind, NodeOp> = {
+  asset: OPS_BY_KIND.asset[0].op,
+  measure: OPS_BY_KIND.measure[0].op,
+  law: OPS_BY_KIND.law[0].op,
+  field: OPS_BY_KIND.field[0].op,
+  verdict: 'verdict',
+}
 
 // ── Node construction (data carries metadata only — never the evaluate fn) ───
 export function specToNode(def: NodeDef, id: string, position: { x: number; y: number }): Node {

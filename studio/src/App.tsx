@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { IconDefs, Icon } from './Icons'
-import { Brand } from './Brand'
+import { Menubar } from './Menubar'
 import { AssetsPanel, type Asset } from './AssetsPanel'
 import { Viewport } from './Viewport'
 import { Properties } from './Properties'
@@ -14,7 +14,9 @@ import { ReactFlowProvider } from '@xyflow/react'
 import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
 import Palette from './components/Palette'
 import { INITIAL_SCENE, type SceneState } from './lib/engine'
-import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health, type Verdict, type WdfDoc } from './api'
+import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health, swept,
+  saveProject, openProjectData, fetchProjectFile,
+  type Verdict, type WdfDoc, type PAP, type Swept, type CapPlane, type ProjectAsset } from './api'
 import './App.css'
 
 export default function App() {
@@ -57,9 +59,29 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [nodeH, setNodeH] = useState(300)
 
+  // door swing articulation (WP-6): angle → real /swept wedge in the viewport
+  const [doorDeg, setDoorDeg] = useState(0)
+  const [sweptGeo, setSweptGeo] = useState<Swept | null>(null)
+
   // node-editor scene (Fara's editable constraint graph; its own live "knob")
   const [scene, setScene] = useState<SceneState>(INITIAL_SCENE)
   const setBronzeX = useCallback((x: number) => setScene((s) => ({ ...s, bronzeX: x })), [])
+
+  // Baked assets, as the node editor's selectable Objects (P1 sync). Import &
+  // bake → the asset appears in every Object node's dropdown (SYNC.md).
+  const objects = useMemo(
+    () =>
+      assets
+        .filter((a) => a.status === 'ok' && a.pap)
+        .map((a) => ({
+          id: a.pap!.asset_id,
+          label: a.name,
+          sub: `${a.pap!.semantics.cls} · ${a.pap!.physical.mass_kg.toFixed(1)}kg`,
+          mass: a.pap!.physical.mass_kg,
+          com: a.pap!.physical.com,
+        })),
+    [assets],
+  )
 
   const startResize = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
@@ -81,7 +103,7 @@ export default function App() {
   }, [])
 
   // reset the loop when the selected asset changes
-  useEffect(() => { setPos([0, 0, 0.4]); setVerdict(null) }, [sel])
+  useEffect(() => { setPos([0, 0, 0.4]); setVerdict(null); setDoorDeg(0); setSweptGeo(null) }, [sel])
 
   // Bake one queued file through the real backend, walking its status (converting
   // for .uasset → baking → ok/error) so the stage queue shows live progress.
@@ -170,19 +192,87 @@ export default function App() {
     try { await commit(objId, pos) } finally { setBusy(false) }
   }, [objId, pos])
 
+  // Articulation (WP-6): set the door swing angle → fetch the real swept wedge.
+  const onDoorDeg = useCallback(async (deg: number) => {
+    setDoorDeg(deg)
+    if (!objId || deg <= 0) { setSweptGeo(null); return }
+    try { setSweptGeo(await swept(objId, deg)) } catch { setSweptGeo(null) }
+  }, [objId])
+
   // material-confirm loop: re-bake the selected mesh with the confirmed per-part
   // materials (now they drive physics) and lock them into the PAP.
   const onConfirmMaterials = useCallback(async (materials: Record<string, string>) => {
     if (!selected?.file) return
     setBusy(true)
     try {
-      const pap = await bake(selected.file, { materials, profile: settings.profile })
+      const pap = await bake(selected.file, { materials, profile: settings.profile, extras: selected.extras })
       setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
     } finally { setBusy(false) }
   }, [selected, settings])
 
+  // Manual override of baked physics (mass / volume / CoM). Mutates the selected
+  // asset's PAP so the viewport (CoM marker, plumb, force view) updates live.
+  const onEditPap = useCallback((patch: { physical?: Partial<PAP['physical']>; geometry?: Partial<PAP['geometry']> }) => {
+    setAssets((a) => a.map((x) => (x.id === sel && x.pap)
+      ? { ...x, pap: {
+          ...x.pap,
+          physical: patch.physical ? { ...x.pap.physical, ...patch.physical } : x.pap.physical,
+          geometry: patch.geometry ? { ...x.pap.geometry, ...patch.geometry } : x.pap.geometry,
+        } }
+      : x))
+  }, [sel])
+
+  // Manual cap tool: the user places a plane in the viewport and resizes it to cover an
+  // opening; on apply we re-bake the mesh with that plane so only the targeted hole gets
+  // a flat lid and the mass/volume become real (not estimated).
+  const [capping, setCapping] = useState(false)
+  const onStartCap = useCallback(() => setCapping(true), [])
+  const onApplyCap = useCallback(async (plane: CapPlane) => {
+    if (!selected?.file) { setCapping(false); return }
+    setBusy(true)
+    try {
+      const pap = await bake(selected.file, { capPlane: plane, profile: settings.profile, extras: selected.extras })
+      setAssets((a) => a.map((x) => (x.id === selected.id ? { ...x, pap, status: 'ok' } : x)))
+    } finally { setBusy(false); setCapping(false) }
+  }, [selected, settings])
+  useEffect(() => { setCapping(false) }, [sel])  // exit the cap tool when the asset changes
+
+  // Project save/open: bundle the .wdf semantics AND the real model files in one place.
+  const [projectName, setProjectName] = useState<string | null>(null)
+  const onSaveProject = useCallback(async (name: string) => {
+    const records: ProjectAsset[] = []
+    const files: { key: string; file: File }[] = []
+    for (const a of assets) {
+      if (!a.file) continue   // declared-only assets (from a .wdf) carry no model file
+      const all = [a.file, ...(a.extras ?? [])]
+      records.push({ id: a.id, name: a.name, main: a.file.name, files: all.map((f) => f.name),
+        profile: a.pap?.profile, masks: a.pap?.parts, pap: a.pap })
+      for (const f of all) files.push({ key: `${a.id}__${f.name}`, file: f })
+    }
+    await saveProject(name, records, files)
+    setProjectName(name)
+    setRecent(addRecent(name))
+  }, [assets])
+  const onOpenProject = useCallback(async (name: string) => {
+    const { manifest } = await openProjectData(name)
+    const restored: Asset[] = []
+    for (const rec of manifest.assets) {
+      const fetched = await Promise.all(rec.files.map((fn) => fetchProjectFile(name, rec.id, fn)))
+      const main = fetched.find((f) => f.name === rec.main) ?? fetched[0]
+      const extras = fetched.filter((f) => f !== main)
+      restored.push({ id: rec.id, name: rec.name, file: main, extras, pap: rec.pap,
+        status: rec.pap ? 'ok' : 'queued' })
+    }
+    setAssets(restored)
+    setSel(restored[0]?.id ?? null)
+    setProjectName(name)
+    setRecent(addRecent(name))
+    setScreen('editor')
+  }, [])
+
   const inspector = selected?.status === 'ok' && objId
     ? <Inspector pos={pos} setPos={setPos} verdict={verdict} busy={busy}
+        sweptDeg={doorDeg} onSweptDeg={onDoorDeg}
         onValidate={onValidate} onRepair={onRepair} onCommit={onCommit} />
     : undefined
 
@@ -210,34 +300,30 @@ export default function App() {
     <div className="app">
       <IconDefs />
 
-      <div className="menubar">
-        <Brand />
-        <div className="sep" />
-        <div className="mfile">
-          <div className="mbtn"><Icon name="new" />New</div>
-          <div className="mbtn"><Icon name="open" />Open</div>
-          <label className="mbtn key">
-            <Icon name="import" />Import mesh
-            <input type="file" multiple accept=".obj,.glb,.gltf,.stl,.uasset,.bin,.png,.jpg,.jpeg,.webp,.ktx2"
-              style={{ display: 'none' }}
-              onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) onAddFiles(fs); e.currentTarget.value = '' }} />
-          </label>
-        </div>
-        <div className="proj">
-          <span className="dot" /><span className="mono">{wdf?.scene ? `${wdf.scene.name}.wdf` : 'untitled.wdf'}</span>
-          <span style={{ color: 'var(--ink4)' }}>·</span>{assets.length} assets
-        </div>
-      </div>
+      <Menubar
+        projectName={projectName ? `${projectName}` : wdf?.scene ? `${wdf.scene.name}.wdf` : 'untitled'}
+        assetCount={assets.length}
+        onNew={startNew}
+        onOpenWdf={onOpenFile}
+        onImport={onAddFiles}
+        onSaveProject={onSaveProject}
+        onOpenProject={onOpenProject}
+      />
 
       <GateStack verdict={verdict} />
       {wdf?.scene && <LawsBand scene={wdf.scene} />}
 
       <div className="row">
-        <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
+        <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport}
+          onDelete={(id) => { setAssets((a) => a.filter((x) => x.id !== id)); setSel((s) => (s === id ? null : s)) }}
+          onUpdate={(id, patch) => setAssets((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)))} />
         <Viewport name={selected?.name ?? ''} file={selected?.file} extras={selected?.extras}
-          pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status} />
+          pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status}
+          swept={sweptGeo} onDropFiles={onAddFiles} capping={capping} onApplyCap={onApplyCap}
+          onExitCap={() => setCapping(false)} busy={busy} />
         <Properties pap={selected?.pap ?? null} footer={inspector}
-          onConfirm={onConfirmMaterials} busy={busy} declared={selected?.wdf} />
+          onConfirm={onConfirmMaterials} onCapOpenings={onStartCap} capping={capping}
+          onEditPap={onEditPap} busy={busy} declared={selected?.wdf} />
       </div>
 
       <div
@@ -255,7 +341,7 @@ export default function App() {
         <div className="ne">
           <ReactFlowProvider>
             <Palette />
-            <ConstraintGraph scene={scene} setBronzeX={setBronzeX} />
+            <ConstraintGraph scene={scene} setBronzeX={setBronzeX} objects={objects} verdict={verdict} />
           </ReactFlowProvider>
         </div>
       </div>

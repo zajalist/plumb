@@ -21,14 +21,37 @@ export type PAP = {
   rest_states: string[]
   parts?: Part[]
 }
-export type Health = { ok: boolean; cortex: boolean; ue?: { available: boolean; cmd: boolean; project: boolean } }
+export type Health = {
+  ok: boolean; cortex: boolean
+  ue?: { available: boolean; cmd: boolean; project: boolean }
+  gemini?: { available: boolean; sdk: boolean; key: boolean }
+}
+
+// AI semantic bake (Gemini): what the asset IS — class, up/front, region materials, affordances.
+export type AiSemantics = {
+  class?: string; up?: number[]; front?: number[]
+  materials?: { region: string; material: string }[]
+  affordances?: string[]; confidence?: number; raw?: string
+}
+export async function semanticBake(assetId: string, images: Blob[], hint = ''): Promise<AiSemantics> {
+  const fd = new FormData()
+  fd.append('asset_id', assetId)
+  fd.append('hint', hint)
+  images.forEach((b, i) => fd.append('images', b, `render_${i}.png`))
+  const r = await fetch(`${BASE}/semantics`, { method: 'POST', body: fd })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? 'semantics failed')
+  return r.json()
+}
 
 export async function health(): Promise<Health> {
   const r = await fetch(`${BASE}/health`)
   return r.json()
 }
 
-export type BakeOpts = { materials?: Record<string, string>; profile?: string; decimate?: number; extras?: File[] }
+// A manual cap plane (origin/normal in the mesh's native frame, half = lid half-extent,
+// depth = slab tolerance) sent by the viewport's cap tool to close a specific opening.
+export type CapPlane = { origin: number[]; normal: number[]; half: number; depth: number }
+export type BakeOpts = { materials?: Record<string, string>; profile?: string; decimate?: number; cap?: boolean; capPlane?: CapPlane; extras?: File[] }
 
 export async function bake(file: File, opts: BakeOpts = {}): Promise<PAP> {
   const fd = new FormData()
@@ -36,6 +59,8 @@ export async function bake(file: File, opts: BakeOpts = {}): Promise<PAP> {
   if (opts.materials) fd.append('materials', JSON.stringify(opts.materials))
   if (opts.profile) fd.append('profile', opts.profile)
   if (opts.decimate) fd.append('decimate', String(opts.decimate))
+  if (opts.cap) fd.append('cap', 'true')
+  if (opts.capPlane) fd.append('cap_plane', JSON.stringify(opts.capPlane))
   for (const e of opts.extras ?? []) fd.append('extras', e)
   const r = await fetch(`${BASE}/bake`, { method: 'POST', body: fd })
   if (!r.ok) {
@@ -53,6 +78,33 @@ export async function convertUassets(files: File[]): Promise<ConvertResult[]> {
   const r = await fetch(`${BASE}/convert`, { method: 'POST', body: fd })
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? 'convert failed')
   return (await r.json()).results
+}
+
+// --- projects (save/open the .wdf semantics + the actual model files together) ---
+export type ProjectAsset = { id: string; name: string; main: string; files: string[]; profile?: string; masks?: Part[]; pap?: PAP }
+export type ProjectInfo = { name: string; assets: number; saved: number }
+export async function saveProject(name: string, assets: ProjectAsset[], files: { key: string; file: File }[]): Promise<{ name: string }> {
+  const fd = new FormData()
+  fd.append('name', name)
+  fd.append('manifest', JSON.stringify(assets))
+  for (const { key, file } of files) fd.append('files', file, key)
+  const r = await fetch(`${BASE}/project/save`, { method: 'POST', body: fd })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? 'save failed')
+  return r.json()
+}
+export async function listProjects(): Promise<ProjectInfo[]> {
+  const r = await fetch(`${BASE}/project/list`)
+  return (await r.json()).projects ?? []
+}
+export async function openProjectData(name: string): Promise<{ manifest: { assets: ProjectAsset[] }; wdf: string }> {
+  const r = await fetch(`${BASE}/project/open?name=${encodeURIComponent(name)}`)
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? 'open failed')
+  return r.json()
+}
+export async function fetchProjectFile(name: string, assetId: string, file: string): Promise<File> {
+  const r = await fetch(`${BASE}/project/file?name=${encodeURIComponent(name)}&asset_id=${encodeURIComponent(assetId)}&file=${encodeURIComponent(file)}`)
+  if (!r.ok) throw new Error('file fetch failed')
+  return new File([await r.blob()], file)
 }
 
 export async function bakeCached(token: string, opts: BakeOpts = {}): Promise<PAP> {
@@ -114,3 +166,8 @@ export const repair = (object: string, pos: number[], quat = DEFAULT_QUAT) =>
   post<Tf>('/repair', { object, pos, quat })
 export const commit = (object: string, pos: number[], quat = DEFAULT_QUAT) =>
   post<{ ok: boolean }>('/commit', { object, pos, quat })
+
+// --- door swept-volume (WP-6 articulation) ---
+export type Swept = { vertices: number[][]; faces: number[][]; range_deg: number }
+export const swept = (object: string, range_deg: number) =>
+  post<Swept>('/swept', { object, range_deg })

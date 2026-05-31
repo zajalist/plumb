@@ -77,10 +77,44 @@ def _cortex_available() -> bool:
 
 @app.get("/health")
 def health() -> dict:
-    """Liveness + whether the real cortex is importable and Unreal convert is wired."""
+    """Liveness + whether cortex, Unreal convert, and the Gemini semantic bake are wired."""
+    from studio.semantics import gemini_status
     from studio.uasset import ue_status
 
-    return {"ok": True, "cortex": _cortex_available(), "ue": ue_status()}
+    return {"ok": True, "cortex": _cortex_available(), "ue": ue_status(), "gemini": gemini_status()}
+
+
+@app.post("/semantics")
+async def semantics(
+    asset_id: str = Form(""),
+    hint: str = Form(""),
+    images: list[UploadFile] = File(...),
+) -> dict:
+    """AI semantic bake: send viewport renders to Gemini → class / up / front /
+    per-region materials / affordances. Folds the inferred class into the stored PAP."""
+    from studio.semantics import gemini_status, semantic_bake
+
+    if not gemini_status()["available"]:
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini not configured — set GEMINI_API_KEY (free key at https://aistudio.google.com).",
+        )
+    imgs = [await im.read() for im in images][:4]
+    if not imgs:
+        raise HTTPException(status_code=422, detail="no render images provided")
+    try:
+        sem = semantic_bake(imgs, hint)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gemini error: {e}") from e
+
+    # fold the inferred class into the stored PAP so the rest of the app sees it.
+    cls = sem.get("class")
+    if cls and asset_id in _ASSETS:
+        try:
+            _ASSETS[asset_id].semantics.cls = str(cls)
+        except Exception:
+            pass
+    return sem
 
 
 def _maybe_decimate(path: str, target_faces: int) -> str:
@@ -112,6 +146,8 @@ async def bake(
     materials: str | None = Form(None),
     profile: str = Form("rigid_prop"),
     decimate: int | None = Form(None),
+    cap: bool = Form(False),
+    cap_plane: str | None = Form(None),
     extras: list[UploadFile] = File(default=[]),
 ) -> dict:
     """Run the real composition bake on an uploaded mesh and return its PAP + masks.
@@ -156,14 +192,33 @@ async def bake(
             if ex.filename:
                 with open(os.path.join(work, os.path.basename(ex.filename)), "wb") as f:
                     f.write(await ex.read())
+        # Sidecars are staged flat (by basename), but a .gltf may reference them with
+        # subfolders (textures/foo.jpg). Rewrite its buffer/image URIs to basenames so
+        # they resolve against the flat staging dir regardless of the original nesting.
+        if fn.lower().endswith(".gltf"):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    doc = json.load(f)
+                for coll in ("buffers", "images"):
+                    for item in doc.get(coll, []):
+                        uri = item.get("uri")
+                        if uri and not uri.startswith("data:"):
+                            item["uri"] = os.path.basename(uri.split("?")[0])
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(doc, f)
+            except Exception:
+                pass
 
     if decimate:
         path = _maybe_decimate(path, int(decimate))
 
     asset_id = fn.rsplit(".", 1)[0]
     part_materials = json.loads(materials) if materials else None
+    plane = json.loads(cap_plane) if cap_plane else None
     try:
-        pap, parts = bake_asset_detailed(asset_id, path, part_materials=part_materials, profile=profile)
+        pap, parts = bake_asset_detailed(
+            asset_id, path, part_materials=part_materials, profile=profile, cap=cap, cap_plane=plane
+        )
     except Exception as e:  # bad mesh / decomposition failure — surface, don't crash
         msg = str(e)
         if fn.lower().endswith(".gltf") and ("No such file" in msg or ".bin" in msg):
@@ -258,6 +313,56 @@ async def open_wdf(doc: UploadFile = File(...)) -> dict:
     return asdict(parsed)
 
 
+# --------------------------------------------------------------------------- #
+# Projects — save/open a project bundling the .wdf semantics + the 3D models.
+# --------------------------------------------------------------------------- #
+@app.post("/project/save")
+async def project_save(
+    name: str = Form(...),
+    manifest: str = Form(...),
+    files: list[UploadFile] = File(default=[]),
+) -> dict:
+    """Save a project: the asset manifest (with PAPs) + the model files, plus a
+    generated project.wdf. ``files`` are named ``<asset_id>__<filename>``."""
+    from studio.project import save_project
+
+    assets = json.loads(manifest)
+    blobs: dict[str, bytes] = {}
+    for uf in files:
+        if uf.filename:
+            blobs[uf.filename] = await uf.read()
+    return save_project(name, assets, blobs)
+
+
+@app.get("/project/list")
+def project_list() -> dict:
+    from studio.project import list_projects
+
+    return {"projects": list_projects()}
+
+
+@app.get("/project/open")
+def project_open(name: str) -> dict:
+    from studio.project import load_project
+
+    data = load_project(name)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"project {name!r} not found")
+    return data
+
+
+@app.get("/project/file")
+def project_file(name: str, asset_id: str, file: str):
+    from fastapi.responses import FileResponse
+
+    from studio.project import model_file
+
+    path = model_file(name, asset_id, file)
+    if not path:
+        raise HTTPException(status_code=404, detail="model file not found")
+    return FileResponse(path, filename=os.path.basename(file))
+
+
 @app.post("/validate")
 def validate(p: Placement) -> dict:
     """Place the asset at ``p`` and run the real gate stack. Returns the Verdict."""
@@ -284,3 +389,39 @@ def commit(p: Placement) -> dict:
     """Commit the placement into the session world (UE5 dispatch is a later WP)."""
     _place(p)
     return {"ok": True, "object": p.object}
+
+
+class SweptReq(BaseModel):
+    """Author a door/articulated asset's opening: hinge axis + swing range."""
+
+    object: str
+    range_deg: float = 90.0
+    axis: list[float] = [0.0, 0.0, 1.0]
+    hinge: list[float] = [0.0, 0.0, 0.0]
+
+
+@app.post("/swept")
+def swept(req: SweptReq) -> dict:
+    """Door swept-volume wedge for a baked asset (WP-6 / articulation).
+
+    Real geometry from ``cortex.bake_profiles.door.swept_volume`` — the union of
+    door poses from 0° to ``range_deg`` about the hinge axis. Returns the wedge as
+    raw ``vertices``/``faces`` for the studio Viewport to render as a keep-clear
+    overlay (the ``door_clear`` gate checks collision against this solid).
+    """
+    from contracts import Transform
+    from cortex.bake_profiles.door import swept_volume
+
+    pap = _ASSETS.get(req.object)
+    if pap is None:
+        raise HTTPException(status_code=404, detail=f"unknown asset {req.object!r}; bake it first")
+    pap.__dict__["_joint"] = {"axis": req.axis, "range_deg": req.range_deg, "hinge_point": req.hinge}
+    try:
+        mesh = swept_volume(pap, Transform(pos=[0.0, 0.0, 0.0]))
+    except Exception as e:  # degenerate joint / mesh — surface, don't crash
+        raise HTTPException(status_code=422, detail=f"swept failed: {e}") from e
+    return {
+        "vertices": [[float(x) for x in v] for v in mesh.vertices],
+        "faces": [[int(i) for i in f] for f in mesh.faces],
+        "range_deg": req.range_deg,
+    }

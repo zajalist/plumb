@@ -1,11 +1,14 @@
 import { Icon } from './Icons'
+import { DragField } from './DragField'
 import type { Verdict } from './api'
 
-export function Inspector({ pos, setPos, verdict, busy, onValidate, onRepair, onCommit }: {
+export function Inspector({ pos, setPos, verdict, busy, sweptDeg, onSweptDeg, onValidate, onRepair, onCommit }: {
   pos: number[]
   setPos: (p: number[]) => void
   verdict: Verdict | null
   busy: boolean
+  sweptDeg?: number
+  onSweptDeg?: (deg: number) => void
   onValidate: () => void
   onRepair: () => void
   onCommit: () => void
@@ -19,13 +22,10 @@ export function Inspector({ pos, setPos, verdict, busy, onValidate, onRepair, on
       <div className="label" style={{ marginBottom: 8 }}>Placement</div>
       <div className="insp-grid">
         {AXES.map((ax, i) => (
-          <label className="insp-field" key={ax}>
+          <div className="insp-field" key={ax}>
             <span>{ax}</span>
-            <input
-              type="number" step="0.01" value={pos[i]}
-              onChange={(e) => set(i, parseFloat(e.target.value) || 0)}
-            />
-          </label>
+            <DragField value={pos[i]} onChange={(v) => set(i, v)} />
+          </div>
         ))}
       </div>
 
@@ -34,6 +34,19 @@ export function Inspector({ pos, setPos, verdict, busy, onValidate, onRepair, on
           {stab && stab.value_m !== null
             ? `stability ${stab.ok ? '✓' : '✗'} ${stab.value_m >= 0 ? '+' : '−'}${Math.abs(stab.value_m * 100).toFixed(1)}cm`
             : verdict.ok ? 'all gates pass' : `stopped at ${verdict.stopped_at}`}
+        </div>
+      )}
+
+      {onSweptDeg && (
+        <div style={{ marginTop: 12 }}>
+          <div className="label" style={{ marginBottom: 6 }}>
+            Articulation · door swing <span style={{ color: 'var(--ink4)' }}>{sweptDeg ? `${sweptDeg}°` : 'off'}</span>
+          </div>
+          <input
+            type="range" min={0} max={180} step={5} value={sweptDeg ?? 0}
+            disabled={busy} style={{ width: '100%', accentColor: 'var(--soft)' }}
+            onChange={(e) => onSweptDeg(parseInt(e.target.value, 10))}
+          />
         </div>
       )}
 

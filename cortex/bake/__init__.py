@@ -47,6 +47,8 @@ def _bake(
     mesh_path: str,
     part_materials: dict | None,
     profile: str,
+    cap: bool = False,
+    cap_plane: dict | None = None,
 ) -> tuple[PAP, list[dict]]:
     """Shared bake: geometry + physical + per-part material masks.
 
@@ -60,7 +62,7 @@ def _bake(
     # material groups (trunk/branch/leaves), baked composition-aware. This also skips
     # CoACD where it would time out. Single-material meshes fall through to CoACD.
     if not part_materials:
-        grouped = bake_material_groups(mesh_path)
+        grouped = bake_material_groups(mesh_path, cap=cap, cap_plane=cap_plane)
         if grouped is not None:
             geometry, physical, masks = grouped
             materials = [MaterialPart(part=m["id"], mat=m["material"], conf=m["conf"]) for m in masks]
@@ -73,6 +75,14 @@ def _bake(
                 provenance=Provenance(auto=True, edited_fields=[], locked=[]),
             )
             return pap, masks
+        # Single-material mesh + a manual cap plane: close the lone mesh at the plane
+        # first, then run the usual geometry/convex bake on the now-capped mesh.
+        if cap_plane:
+            from cortex.bake.cap import cap_file
+
+            capped_path = cap_file(mesh_path, cap_plane)
+            if capped_path:
+                mesh_path = capped_path
 
     geometry, parts, _flag = bake_geometry_parts(mesh_path)
 
@@ -132,8 +142,12 @@ def bake_asset_detailed(
     mesh_path: str,
     part_materials: dict | None = None,
     profile: str = "rigid_prop",
+    cap: bool = False,
+    cap_plane: dict | None = None,
 ) -> tuple[PAP, list[dict]]:
     """Same as :func:`bake_asset` but also returns the per-part mask detail the
     studio renders (volume fraction, displayed material + confidence, mask colour,
-    hollowness). The detail is plain dicts — it lives outside the frozen contract."""
-    return _bake(asset_id, mesh_path, part_materials, profile)
+    hollowness). ``cap`` auto-closes open meshes; ``cap_plane`` closes only the openings
+    a user's manual plane covers — either makes the volume real, not estimated.
+    The detail is plain dicts — it lives outside the frozen contract."""
+    return _bake(asset_id, mesh_path, part_materials, profile, cap=cap, cap_plane=cap_plane)
