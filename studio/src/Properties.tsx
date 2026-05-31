@@ -26,7 +26,8 @@ export function Properties({ pap, footer, onConfirm, onCloseMesh, busy, declared
   // manual physics overrides (null = use the baked value)
   const [massOv, setMassOv] = useState<number | null>(null)
   const [volOv, setVolOv] = useState<number | null>(null)
-  useEffect(() => { setOver({}); setMassOv(null); setVolOv(null) }, [pap?.asset_id])
+  const [comOv, setComOv] = useState<number[] | null>(null)
+  useEffect(() => { setOver({}); setMassOv(null); setVolOv(null); setComOv(null) }, [pap?.asset_id])
 
   if (!pap && declared) {
     const masks = Object.entries(declared.material)
@@ -84,7 +85,6 @@ export function Properties({ pap, footer, onConfirm, onCloseMesh, busy, declared
       </section>
     )
   }
-  const f3 = (n: number) => (n.toFixed(2).replace(/^(-?)0\./, '$1.'))
   const parts = pap.parts ?? []
   const allConfirmed = parts.length > 0 && parts.every((p) => p.confirmed)
 
@@ -130,8 +130,10 @@ export function Properties({ pap, footer, onConfirm, onCloseMesh, busy, declared
           <div className="prop">
             <span className="k"><Icon name="com" />centre of mass</span>
             <span className="vec">
-              {pap.physical.com.map((c, i) => (
-                <span className="cell" key={i}><span className="ax" style={{ color: AXIS[i] }}>{'XYZ'[i]}</span>{f3(c)}</span>
+              {(comOv ?? pap.physical.com).map((c, i) => (
+                <DragField key={i} value={c} min={-2} max={2} step={0.01} decimals={2}
+                  prefix={<span style={{ color: AXIS[i], fontWeight: 700 }}>{'XYZ'[i]}</span>}
+                  onChange={(v) => { const next = [...(comOv ?? pap.physical.com)]; next[i] = v; setComOv(next) }} />
               ))}
             </span>
           </div>

@@ -292,6 +292,11 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .dragfield .du{position:relative;margin-left:4px;font-size:10px;color:var(--ink4);pointer-events:none}
 /* slider sits in a Properties row: match the recessed field width/height there */
 .prop .dragfield{max-width:148px;height:24px}
+.dragfield.has-prefix{gap:4px}
+.dragfield .dprefix{position:relative;font-variant-numeric:tabular-nums;font-size:9.5px;pointer-events:none}
+/* CoM: three editable axis fields share the vector row */
+.vec .dragfield{flex:1;min-width:0;max-width:none}
+.vec .dragfield .dv{font-size:11px}
 .insp-readout{font-variant-numeric:tabular-nums;font-size:11.5px;margin-top:10px}
 .insp-btns{display:flex;gap:7px;margin-top:12px}
 .ibtn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:32px;border-radius:4px;border:1px solid var(--line2);background:linear-gradient(180deg,#1B1F23,#16191C);color:var(--ink2);font-family:var(--sans);font-size:12px;font-weight:500;cursor:pointer}
