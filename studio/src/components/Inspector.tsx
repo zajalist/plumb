@@ -125,7 +125,7 @@ export default function Inspector({
   incoming: { label: string; type?: PortType }[]
   bronzeX: number
   setBronzeX: (x: number) => void
-  objects?: { id: string; label: string; sub?: string }[]
+  objects?: { id: string; label: string; sub?: string; mass?: number; com?: number[] }[]
   onChangeOp: (id: string, op: NodeOp) => void
   onBindAsset: (id: string, assetId: string, label: string, sub?: string) => void
   onDelete: (id: string) => void
@@ -202,6 +202,28 @@ export default function Inspector({
           </div>
         )
       )}
+
+      {d.kind === 'asset' && d.assetId && (() => {
+        const o = objects.find((x) => x.id === d.assetId)
+        if (!o || (o.mass === undefined && !o.com)) return null
+        return (
+          <div className="inspector-section">
+            <div className="inspector-h">Baked · PAP</div>
+            {o.mass !== undefined && (
+              <div className="inspector-row">
+                <span className="inspector-key">mass</span>
+                <span>{o.mass.toFixed(1)} kg</span>
+              </div>
+            )}
+            {o.com && (
+              <div className="inspector-row">
+                <span className="inspector-key">centre of mass</span>
+                <span>{o.com.map((n) => n.toFixed(2).replace(/^(-?)0\./, '$1.')).join(', ')}</span>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       <div className="inspector-section">
         <div className="inspector-h">Ports</div>

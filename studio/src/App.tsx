@@ -71,6 +71,8 @@ export default function App() {
           id: a.pap!.asset_id,
           label: a.name,
           sub: `${a.pap!.semantics.cls} · ${a.pap!.physical.mass_kg.toFixed(1)}kg`,
+          mass: a.pap!.physical.mass_kg,
+          com: a.pap!.physical.com,
         })),
     [assets],
   )

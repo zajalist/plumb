@@ -150,8 +150,8 @@ const nodeTypes = {
 
 const SEED = seedGraph()
 
-/** A baked asset offered to Object nodes (the P1 sync list). */
-export type ObjectOption = { id: string; label: string; sub?: string }
+/** A baked asset offered to Object nodes (the P1 sync list) + its baked facts (P2). */
+export type ObjectOption = { id: string; label: string; sub?: string; mass?: number; com?: number[] }
 
 export default function ConstraintGraph({
   scene,
