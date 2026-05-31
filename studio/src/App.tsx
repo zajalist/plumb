@@ -108,6 +108,7 @@ export default function App() {
     const added = meshFiles.map((f): Asset => ({
       id: `${f.name.replace(/\.[^.]+$/, '')}-${Math.random().toString(36).slice(2, 6)}`,
       name: f.name, file: f, status: 'queued',
+      extras: f.name.toLowerCase().endsWith('.gltf') ? sidecars : undefined,
     }))
     setAssets((a) => [...a, ...added])
     setSel((s) => s ?? added[0]?.id ?? null)
@@ -233,7 +234,7 @@ export default function App() {
 
       <div className="row">
         <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
-        <Viewport name={selected?.name ?? ''}
+        <Viewport name={selected?.name ?? ''} file={selected?.file} extras={selected?.extras}
           pap={selected?.pap ?? null} pos={pos} verdict={verdict} status={selected?.status} />
         <Properties pap={selected?.pap ?? null} footer={inspector}
           onConfirm={onConfirmMaterials} busy={busy} declared={selected?.wdf} />

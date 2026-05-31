@@ -4,9 +4,10 @@ import type { PAP, WdfAsset } from './api'
 
 const SWATCH: Record<string, string> = {
   bronze: '#7b5a2a', stone: '#6b6a63', glass: '#5b6b6b', wood: '#6e5a36', default: '#5a5750',
+  foliage: '#566b38', metal: '#8a8d92', plastic: '#585866', fabric: '#6a5a48', water: '#3a5a6a',
 }
 const MASK_PALETTE = ['#34C0AD', '#D9A84C', '#6E8BA0', '#E0694F', '#5FA38C', '#A088B0', '#C2925A', '#7C8AA0']
-const MATERIALS = ['default', 'bronze', 'stone', 'glass', 'wood']
+const MATERIALS = ['default', 'wood', 'foliage', 'stone', 'metal', 'glass', 'plastic', 'fabric', 'bronze', 'water']
 
 export function Properties({ pap, footer, onConfirm, busy, declared }: {
   pap: PAP | null
