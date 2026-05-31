@@ -14,7 +14,7 @@ import { ReactFlowProvider } from '@xyflow/react'
 import ConstraintGraph from './components/ConstraintGraph' // Fara's editable node editor
 import Palette from './components/Palette'
 import { INITIAL_SCENE, type SceneState } from './lib/engine'
-import { bake, validate, repair, commit, openWdf, health, type Verdict, type WdfDoc } from './api'
+import { bake, bakeCached, convertUassets, validate, repair, commit, openWdf, health, type Verdict, type WdfDoc } from './api'
 import './App.css'
 
 export default function App() {
@@ -97,8 +97,8 @@ export default function App() {
     }
   }, [settings])
 
-  // Add dropped/selected files to the queue and bake them sequentially (kind to
-  // CPU + the single Unreal worker).
+  // Add dropped/selected files to the queue, then bake. .uasset files are converted
+  // in ONE Unreal boot (batch) and baked from their tokens; meshes bake directly.
   const onAddFiles = useCallback(async (files: File[]) => {
     const added = files.map((f): Asset => ({
       id: `${f.name.replace(/\.[^.]+$/, '')}-${Math.random().toString(36).slice(2, 6)}`,
@@ -106,8 +106,33 @@ export default function App() {
     }))
     setAssets((a) => [...a, ...added])
     setSel((s) => s ?? added[0]?.id ?? null)
-    for (const x of added) await bakeFile(x.file!, x.id)
-  }, [bakeFile])
+
+    const opts = { profile: settings.profile, decimate: settings.simplify ? 6000 : undefined }
+    const uassets = added.filter((x) => x.name.toLowerCase().endsWith('.uasset'))
+    const meshes = added.filter((x) => !x.name.toLowerCase().endsWith('.uasset'))
+    const mark = (id: string, patch: Partial<Asset>) =>
+      setAssets((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+
+    if (uassets.length) {
+      uassets.forEach((u) => mark(u.id, { status: 'converting' }))
+      try {
+        const results = await convertUassets(uassets.map((u) => u.file!))
+        const byName = new Map(results.map((r) => [r.name, r]))
+        for (const u of uassets) {
+          const res = byName.get(u.name)
+          if (!res?.ok || !res.token) { mark(u.id, { status: 'error', error: 'Unreal export failed' }); continue }
+          mark(u.id, { status: 'baking' })
+          try { mark(u.id, { pap: await bakeCached(res.token, opts), status: 'ok' }) }
+          catch (e) { mark(u.id, { status: 'error', error: e instanceof Error ? e.message : String(e) }) }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        uassets.forEach((u) => mark(u.id, { status: 'error', error: msg }))
+      }
+    }
+
+    for (const x of meshes) await bakeFile(x.file!, x.id)
+  }, [bakeFile, settings])
 
   const onImport = useCallback((file: File) => { void onAddFiles([file]) }, [onAddFiles])
 
@@ -199,7 +224,7 @@ export default function App() {
 
       <div className="row">
         <AssetsPanel assets={assets} selected={sel} onSelect={setSel} onImport={onImport} />
-        <Viewport file={selected?.file ?? null} name={selected?.name ?? ''}
+        <Viewport name={selected?.name ?? ''}
           pap={selected?.pap ?? null} pos={pos} verdict={verdict} />
         <Properties pap={selected?.pap ?? null} footer={inspector}
           onConfirm={onConfirmMaterials} busy={busy} declared={selected?.wdf} />

@@ -61,6 +61,7 @@ def bake_geometry_parts(
     ``"coacd"`` when CoACD produced the decomposition, else ``"fallback"``.
     """
     mesh = _load_mesh(mesh_path)
+    _preprocess(mesh)
 
     parts, flag = _convex_parts(mesh)
 
@@ -85,6 +86,31 @@ def _load_mesh(mesh_path: str) -> trimesh.Trimesh:
     if not isinstance(loaded, trimesh.Trimesh):
         raise ValueError(f"{mesh_path!r} did not load as a triangle mesh")
     return loaded
+
+
+def _preprocess(mesh: trimesh.Trimesh) -> None:
+    """Light, non-destructive cleanup so CoACD's fast path can trigger.
+
+    Game-engine exports split vertices per corner and leave small gaps, which reads
+    as non-watertight and pushes CoACD onto its slow voxel-remesh path. Merging weld
+    seams, dropping degenerate/duplicate faces, and filling small holes recovers
+    connectivity *without* moving geometry (mass/CoM stay honest — we never voxel-
+    remesh, which would distort them). Best-effort: any step that fails is skipped.
+    """
+    if mesh.is_watertight:
+        return
+    for step in (
+        lambda: mesh.merge_vertices(),
+        lambda: mesh.update_faces(mesh.nondegenerate_faces()),
+        lambda: mesh.update_faces(mesh.unique_faces()),
+        lambda: mesh.remove_unreferenced_vertices(),
+        lambda: trimesh.repair.fill_holes(mesh),
+        lambda: trimesh.repair.fix_normals(mesh),
+    ):
+        try:
+            step()
+        except Exception:
+            pass
 
 
 def _aabb_half_extents(mesh: trimesh.Trimesh) -> list[float]:

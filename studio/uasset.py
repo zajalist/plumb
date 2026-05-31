@@ -120,11 +120,14 @@ def convert_uassets(assets: dict[str, str], timeout: int = 600) -> dict[str, str
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(_export_script(stems, out_dir))
 
-        subprocess.run(
-            [cmd, proj, "-run=pythonscript", f"-script={script_path}",
-             "-nullrhi", "-unattended", "-nopause", "-nosplash", "-stdout"],
-            capture_output=True, text=True, timeout=timeout,
-        )
+        # glTF export is geometry-only (we disable material baking), so the GPU RHI
+        # adds no speedup and -nullrhi is faster + headless-safe. Opt into the GPU
+        # path with PLUMB_UE_GPU=1 (e.g. if a future export needs baked textures).
+        argv = [cmd, proj, "-run=pythonscript", f"-script={script_path}",
+                "-unattended", "-nopause", "-nosplash", "-stdout"]
+        if os.environ.get("PLUMB_UE_GPU", "0") != "1":
+            argv.insert(4, "-nullrhi")
+        subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
 
         result: dict[str, str | None] = {}
         for name in assets:

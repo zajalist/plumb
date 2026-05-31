@@ -199,6 +199,8 @@ class CachedBake(BaseModel):
 
     token: str
     materials: dict | None = None
+    profile: str = "rigid_prop"
+    decimate: int | None = None
 
 
 @app.post("/bake_cached")
@@ -209,9 +211,10 @@ def bake_cached(b: CachedBake) -> dict:
     glb = _GLB_CACHE.get(b.token)
     if not glb or not os.path.exists(glb):
         raise HTTPException(status_code=404, detail="unknown or expired conversion token")
+    path = _maybe_decimate(glb, int(b.decimate)) if b.decimate else glb
     asset_id = os.path.splitext(os.path.basename(glb))[0]
     try:
-        pap, parts = bake_asset_detailed(asset_id, glb, part_materials=b.materials)
+        pap, parts = bake_asset_detailed(asset_id, path, part_materials=b.materials, profile=b.profile)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"bake failed: {e}") from e
     _ASSETS[asset_id] = pap

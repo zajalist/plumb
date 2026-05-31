@@ -107,6 +107,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13p
 .crop.br{bottom:12px;right:12px;border-left:0;border-top:0}
 .axis{position:absolute;left:18px;bottom:18px;font-family:var(--mono);font-size:10px;color:var(--ink4);line-height:1.5;z-index:2}
 .vmark{position:absolute;right:16px;top:14px;font-family:var(--mono);font-size:10px;color:var(--ink4);text-align:right;line-height:1.6;z-index:2}
+.vptoggle{display:flex;gap:2px;border:1px solid var(--line2);border-radius:6px;padding:2px}
+.vptoggle button{appearance:none;background:none;border:none;color:var(--ink4);font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:3px 9px;border-radius:4px;cursor:pointer}
+.vptoggle button.on{background:var(--surface2);color:var(--sage)}
 .emptyvp{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--cream-dim);font-family:var(--serif);font-size:20px;letter-spacing:.01em;opacity:.7}
 
 /* properties */

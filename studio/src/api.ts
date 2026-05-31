@@ -8,6 +8,7 @@ export type Part = {
   material: string; conf: number; source: string; confirmed: boolean
   volume_m3: number; vol_frac: number; mass_kg: number; mass_frac: number
   hollow: boolean; centroid: number[]; extent: number[]; color: string
+  verts?: number[][]; tris?: number[][]   // convex-part geometry for the masks view
 }
 export type PAP = {
   asset_id: string
@@ -40,6 +41,25 @@ export async function bake(file: File, opts: BakeOpts = {}): Promise<PAP> {
     const detail = await r.json().catch(() => ({}))
     throw new Error(detail.detail ?? 'bake failed')
   }
+  return r.json()
+}
+
+// Batch-convert .uasset files in ONE Unreal boot, then bake each by token.
+export type ConvertResult = { name: string; token: string | null; ok: boolean }
+export async function convertUassets(files: File[]): Promise<ConvertResult[]> {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  const r = await fetch(`${BASE}/convert`, { method: 'POST', body: fd })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? 'convert failed')
+  return (await r.json()).results
+}
+
+export async function bakeCached(token: string, opts: BakeOpts = {}): Promise<PAP> {
+  const r = await fetch(`${BASE}/bake_cached`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token, materials: opts.materials, profile: opts.profile, decimate: opts.decimate }),
+  })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? 'bake failed')
   return r.json()
 }
 
