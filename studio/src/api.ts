@@ -14,7 +14,7 @@ export type PAP = {
   asset_id: string
   profile: string
   geometry: { obb: number[]; volume_m3: number; convex_parts: number; watertight: boolean }
-  semantics: { cls: string; up: number[]; front: number[]; materials: MaterialPart[]; conf: number }
+  semantics: { cls: string; up: number[]; front: number[]; materials: MaterialPart[]; affordances?: string[]; conf: number }
   physical: { mass_kg: number; com: number[]; inertia: number[][]; hollow: boolean; conf: number }
   structural: { support_footprint: number[][]; max_load_kg_est: number | null; experimental: boolean }
   provenance?: { auto: boolean; edited_fields: string[]; locked: string[] }
@@ -51,6 +51,16 @@ export async function health(): Promise<Health> {
 // A manual cap plane (origin/normal in the mesh's native frame, half = lid half-extent,
 // depth = slab tolerance) sent by the viewport's cap tool to close a specific opening.
 export type CapPlane = { origin: number[]; normal: number[]; half: number; depth: number }
+
+// The outcome of a manual cap, surfaced to the user: did it seal / refine / miss, with
+// the mass & volume before and after so they can see the effect.
+export type CapResult = {
+  status: 'sealed' | 'refined' | 'none' | 'error'
+  before: { mass: number; vol: number }   // vol in m³
+  after: { mass: number; vol: number }
+  watertight: boolean
+  message?: string
+}
 export type BakeOpts = { materials?: Record<string, string>; profile?: string; decimate?: number; cap?: boolean; capPlane?: CapPlane; extras?: File[] }
 
 export async function bake(file: File, opts: BakeOpts = {}): Promise<PAP> {
@@ -160,9 +170,10 @@ export async function openWdf(file: File): Promise<WdfDoc> {
   return r.json()
 }
 
-export const validate = (object: string, pos: number[], quat = DEFAULT_QUAT) =>
-  post<Verdict>('/validate', { object, pos, quat })
-export const repair = (object: string, pos: number[], quat = DEFAULT_QUAT) =>
-  post<Tf>('/repair', { object, pos, quat })
-export const commit = (object: string, pos: number[], quat = DEFAULT_QUAT) =>
-  post<{ ok: boolean }>('/commit', { object, pos, quat })
+const DEFAULT_SCALE = [1, 1, 1]
+export const validate = (object: string, pos: number[], quat = DEFAULT_QUAT, scale = DEFAULT_SCALE) =>
+  post<Verdict>('/validate', { object, pos, quat, scale })
+export const repair = (object: string, pos: number[], quat = DEFAULT_QUAT, scale = DEFAULT_SCALE) =>
+  post<Tf>('/repair', { object, pos, quat, scale })
+export const commit = (object: string, pos: number[], quat = DEFAULT_QUAT, scale = DEFAULT_SCALE) =>
+  post<{ ok: boolean }>('/commit', { object, pos, quat, scale })
